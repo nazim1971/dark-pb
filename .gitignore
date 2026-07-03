@@ -4,3 +4,5 @@ dist
 .prisma
 coverage
 *.log
+.txt
+ppb.txt
