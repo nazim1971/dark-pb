@@ -1,0 +1,718 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SONGWRITER   @map("songwriter")
+  COMPOSER     @map("composer")
+  ARTIST       @map("artist")
+  PUBLISHER    @map("publisher")
+  RECORD_LABEL @map("record_label")
+  ADMIN        @map("admin")
+}
+
+enum CompanyType {
+  PUBLISHER
+  RECORD_LABEL
+  ADMINISTRATION
+  OTHER
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PublishingStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  PUBLISHED
+  REJECTED
+}
+
+enum WriterRole {
+  SONGWRITER
+  COMPOSER
+  LYRICIST
+  ARRANGER
+  ADAPTOR
+  OTHER
+}
+
+enum RoyaltyType {
+  PERFORMANCE
+  MECHANICAL
+  LYRICS
+  SYNCHRONIZATION
+  OTHER
+}
+
+enum RoyaltyStatus {
+  PENDING
+  PROCESSED
+  DISPUTED
+  PAID
+}
+
+enum ContractType {
+  PUBLISHING_AGREEMENT
+  SPLIT_SHEET
+  ADMINISTRATION_AGREEMENT
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum StatementStatus {
+  DRAFT
+  FINALIZED
+  SENT
+  PAID
+}
+
+enum ConflictStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_USER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  ACCOUNT
+  KYC
+  COMPOSITION
+  ROYALTY
+  CONTRACT
+  TECHNICAL
+  OTHER
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  ADMIN_ALERT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  LOGIN
+  LOGOUT
+  EXPORT
+}
+
+enum AuditEntityType {
+  USER
+  COMPANY
+  KYC
+  COMPOSITION
+  WRITER
+  RECORDING
+  PUBLISHER
+  LYRICS
+  CONTRACT
+  ROYALTY
+  STATEMENT
+  CONFLICT
+  TICKET
+  NOTIFICATION
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         Role      @default(ARTIST)
+  companyId    String?   @db.Uuid
+  emailVerifiedAt               DateTime?
+  emailVerificationTokenHash    String?
+  emailVerificationExpiresAt    DateTime?
+  passwordResetTokenHash        String?
+  passwordResetExpiresAt        DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  company             Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  sessions            Session[]
+  createdCompositions Composition[]   @relation("CompositionOwner")
+  kycProfile          KYC?            @relation("UserKycSubject")
+  reviewedKycs        KYC[]           @relation("KycReviewer")
+  writerProfiles      Writer[]
+  contractsCreated    Contract[]      @relation("ContractCreator")
+  statements          Statement[]
+  reportedConflicts   Conflict[]      @relation("ConflictReporter")
+  createdTickets      Ticket[]        @relation("TicketCreator")
+  assignedTickets     Ticket[]        @relation("TicketAssignee")
+  ticketReplies       TicketReply[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]      @relation("AuditActor")
+
+  @@index([companyId])
+  @@index([role])
+  @@index([emailVerifiedAt])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Company {
+  id                 String      @id @default(uuid()) @db.Uuid
+  name               String
+  legalName          String?
+  registrationNumber String?
+  taxId              String?
+  country            String?
+  type               CompanyType @default(OTHER)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  deletedAt          DateTime?
+
+  users         User[]
+  kycRecords    KYC[]
+  publishers    Publisher[]
+  compositions  Composition[]
+  contracts     Contract[]
+  statements    Statement[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@index([name])
+  @@index([type])
+  @@index([deletedAt])
+  @@map("companies")
+}
+
+model KYC {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String?   @unique @db.Uuid
+  companyId      String?   @db.Uuid
+  documentType   String
+  documentNumber String?
+  country        String?
+  status         KycStatus @default(PENDING)
+  notes          String?
+  submittedAt    DateTime  @default(now())
+  reviewedAt     DateTime?
+  reviewedById   String?   @db.Uuid
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  user       User?    @relation("UserKycSubject", fields: [userId], references: [id], onDelete: Cascade)
+  company    Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reviewedBy User?    @relation("KycReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([status])
+  @@index([reviewedById])
+  @@index([deletedAt])
+  @@map("kyc")
+}
+
+model Composition {
+  id               String           @id @default(uuid()) @db.Uuid
+  ownerId          String           @db.Uuid
+  companyId        String?          @db.Uuid
+  songTitle        String
+  alternativeTitle String?
+  language         String?
+  genre            String?
+  spotifyUrl       String?
+  appleMusicUrl    String?
+  youtubeUrl       String?
+  iswc             String?          @unique
+  isrc             String?
+  releaseDate      DateTime?
+  version          String?
+  status           PublishingStatus @default(DRAFT)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  owner      User                   @relation("CompositionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  company    Company?               @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  lyrics     Lyrics?
+  writers    CompositionWriter[]
+  recordings CompositionRecording[]
+  publishers CompositionPublisher[]
+  contracts  ContractComposition[]
+  royalties  Royalty[]
+  conflicts  Conflict[]
+
+  @@index([ownerId])
+  @@index([companyId])
+  @@index([songTitle])
+  @@index([alternativeTitle])
+  @@index([spotifyUrl])
+  @@index([iswc])
+  @@index([isrc])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("compositions")
+}
+
+model Writer {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String?    @db.Uuid
+  legalName String
+  stageName String?
+  ipiNumber String?    @unique
+  pro       String?
+  role      WriterRole @default(SONGWRITER)
+  country   String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  deletedAt DateTime?
+
+  user         User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  compositions CompositionWriter[]
+  royalties    Royalty[]
+
+  @@index([userId])
+  @@index([legalName])
+  @@index([stageName])
+  @@index([pro])
+  @@index([deletedAt])
+  @@map("writers")
+}
+
+model Recording {
+  id             String   @id @default(uuid()) @db.Uuid
+  isrc           String?  @unique
+  artist         String?
+  spotifyLink    String?
+  appleMusicUrl  String?
+  youtubeUrl     String?
+  durationSecond Int?
+  releaseDate    DateTime?
+  version        String?
+  label          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  compositions CompositionRecording[]
+  royalties    Royalty[]
+
+  @@index([isrc])
+  @@index([artist])
+  @@index([spotifyLink])
+  @@index([deletedAt])
+  @@map("recordings")
+}
+
+model Publisher {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String?  @db.Uuid
+  publisherName String
+  ipi           String?  @unique
+  territory     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  company      Company?               @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  compositions CompositionPublisher[]
+  contracts    Contract[]
+  royalties    Royalty[]
+
+  @@index([companyId])
+  @@index([publisherName])
+  @@index([territory])
+  @@index([deletedAt])
+  @@map("publishers")
+}
+
+model Lyrics {
+  id            String   @id @default(uuid()) @db.Uuid
+  compositionId String   @unique @db.Uuid
+  body          String
+  language      String?
+  version       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+
+  @@index([deletedAt])
+  @@map("lyrics")
+}
+
+model Contract {
+  id            String         @id @default(uuid()) @db.Uuid
+  contractNo    String         @unique
+  title         String
+  type          ContractType
+  status        ContractStatus @default(DRAFT)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  companyId     String?        @db.Uuid
+  publisherId   String?        @db.Uuid
+  createdById   String         @db.Uuid
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  company      Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  publisher    Publisher?            @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+  createdBy    User                  @relation("ContractCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  compositions ContractComposition[]
+  royalties    Royalty[]
+
+  @@index([companyId])
+  @@index([publisherId])
+  @@index([createdById])
+  @@index([type])
+  @@index([status])
+  @@index([effectiveFrom, effectiveTo])
+  @@index([deletedAt])
+  @@map("contracts")
+}
+
+model Royalty {
+  id              String        @id @default(uuid()) @db.Uuid
+  compositionId   String?       @db.Uuid
+  recordingId     String?       @db.Uuid
+  writerId        String?       @db.Uuid
+  publisherId     String?       @db.Uuid
+  contractId      String?       @db.Uuid
+  type            RoyaltyType
+  status          RoyaltyStatus @default(PENDING)
+  sourceDsp       String?
+  country         String?
+  usageDate       DateTime?
+  periodYear      Int
+  periodMonth     Int
+  amount          Decimal       @db.Decimal(18, 4)
+  currency        String        @default("USD")
+  sharePercentage Decimal       @db.Decimal(5, 2)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  composition Composition?      @relation(fields: [compositionId], references: [id], onDelete: SetNull)
+  recording   Recording?        @relation(fields: [recordingId], references: [id], onDelete: SetNull)
+  writer      Writer?           @relation(fields: [writerId], references: [id], onDelete: SetNull)
+  publisher   Publisher?        @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+  contract    Contract?         @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  statements  StatementRoyalty[]
+
+  @@index([compositionId])
+  @@index([recordingId])
+  @@index([writerId])
+  @@index([publisherId])
+  @@index([contractId])
+  @@index([type])
+  @@index([status])
+  @@index([periodYear, periodMonth])
+  @@index([country])
+  @@index([sourceDsp])
+  @@index([deletedAt])
+  @@map("royalties")
+}
+
+model Statement {
+  id          String          @id @default(uuid()) @db.Uuid
+  statementNo String          @unique
+  userId      String          @db.Uuid
+  companyId   String?         @db.Uuid
+  periodStart DateTime
+  periodEnd   DateTime
+  status      StatementStatus @default(DRAFT)
+  totalAmount Decimal         @db.Decimal(18, 4)
+  currency    String          @default("USD")
+  generatedAt DateTime        @default(now())
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  royalties StatementRoyalty[]
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+  @@index([deletedAt])
+  @@map("statements")
+}
+
+model Conflict {
+  id              String         @id @default(uuid()) @db.Uuid
+  compositionId   String         @db.Uuid
+  reportingUserId String?        @db.Uuid
+  conflictReason  String
+  currentClaim    Decimal        @db.Decimal(5, 2)
+  ourClaim        Decimal        @db.Decimal(5, 2)
+  status          ConflictStatus @default(OPEN)
+  resolutionNote  String?
+  resolvedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+  reporter    User?       @relation("ConflictReporter", fields: [reportingUserId], references: [id], onDelete: SetNull)
+
+  @@index([compositionId])
+  @@index([reportingUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([resolvedAt])
+  @@index([deletedAt])
+  @@map("conflicts")
+}
+
+model Ticket {
+  id           String         @id @default(uuid()) @db.Uuid
+  ticketNo     String         @unique
+  userId       String         @db.Uuid
+  assignedToId String?        @db.Uuid
+  subject      String
+  message      String
+  category     TicketCategory @default(OTHER)
+  priority     TicketPriority @default(MEDIUM)
+  status       TicketStatus   @default(OPEN)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  user       User  @relation("TicketCreator", fields: [userId], references: [id], onDelete: Cascade)
+  assignedTo User? @relation("TicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  replies    TicketReply[]
+
+  @@index([userId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("tickets")
+}
+
+model TicketReply {
+  id           String   @id @default(uuid()) @db.Uuid
+  ticketId      String   @db.Uuid
+  userId        String   @db.Uuid
+  message       String
+  isAdminReply  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("ticket_replies")
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String?          @db.Uuid
+  companyId String?          @db.Uuid
+  title     String
+  message   String
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  deletedAt DateTime?
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([isRead])
+  @@index([type])
+  @@index([deletedAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String          @id @default(uuid()) @db.Uuid
+  actorId    String?         @db.Uuid
+  companyId  String?         @db.Uuid
+  action     AuditAction
+  entityType AuditEntityType
+  entityId   String?
+  summary    String?
+  changes    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  deletedAt  DateTime?
+
+  actor   User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([companyId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("audit_logs")
+}
+
+model CompositionWriter {
+  id                  String   @id @default(uuid()) @db.Uuid
+  compositionId       String   @db.Uuid
+  writerId            String   @db.Uuid
+  controlledPublisher String?
+  writerShare         Decimal  @db.Decimal(5, 2)
+  publisherShare      Decimal? @db.Decimal(5, 2)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
+
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+  writer      Writer      @relation(fields: [writerId], references: [id], onDelete: Cascade)
+
+  @@unique([compositionId, writerId])
+  @@index([writerId])
+  @@index([deletedAt])
+  @@map("composition_writers")
+}
+
+model CompositionPublisher {
+  id              String   @id @default(uuid()) @db.Uuid
+  compositionId   String   @db.Uuid
+  publisherId     String   @db.Uuid
+  territory       String?
+  sharePercentage Decimal  @db.Decimal(5, 2)
+  agreementFrom   DateTime?
+  agreementTo     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+  publisher   Publisher   @relation(fields: [publisherId], references: [id], onDelete: Cascade)
+
+  @@unique([compositionId, publisherId])
+  @@index([publisherId])
+  @@index([deletedAt])
+  @@map("composition_publishers")
+}
+
+model CompositionRecording {
+  id            String   @id @default(uuid()) @db.Uuid
+  compositionId String   @db.Uuid
+  recordingId   String   @db.Uuid
+  isPrimary     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+  recording   Recording   @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@unique([compositionId, recordingId])
+  @@index([recordingId])
+  @@index([deletedAt])
+  @@map("composition_recordings")
+}
+
+model ContractComposition {
+  id              String   @id @default(uuid()) @db.Uuid
+  contractId      String   @db.Uuid
+  compositionId   String   @db.Uuid
+  territory       String?
+  sharePercentage Decimal? @db.Decimal(5, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  contract    Contract    @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, compositionId])
+  @@index([compositionId])
+  @@index([deletedAt])
+  @@map("contract_compositions")
+}
+
+model StatementRoyalty {
+  id              String   @id @default(uuid()) @db.Uuid
+  statementId     String   @db.Uuid
+  royaltyId       String   @db.Uuid
+  allocatedAmount Decimal  @db.Decimal(18, 4)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  statement Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  royalty   Royalty   @relation(fields: [royaltyId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, royaltyId])
+  @@index([royaltyId])
+  @@index([deletedAt])
+  @@map("statement_royalties")
+}
+
+model Session {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  compromisedAt    DateTime?
+  replacedById     String?  @db.Uuid
+  deletedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([deletedAt])
+  @@map("sessions")
+}
