@@ -359,7 +359,7 @@ curl -X GET http://localhost:3000/
 #### POST /auth/register
 - **Auth:** Public
 
-**Body Example:**
+**Body Example INDIVIDUAL :**
 ```json
 {
   "legalName": "Araf Writer",
@@ -373,6 +373,27 @@ curl -X GET http://localhost:3000/
   "password": "StrongPass123!",
   "role": "SONGWRITER",
   "registrationType": "INDIVIDUAL"
+}
+```
+
+**Body Example COMPANY :**
+```json
+{
+  "legalName": "Pom Writer",
+  "stageName": "Pom",
+  "country": "Bangladesh",
+  "phone": "+8801XXXXXXXXX",
+  "spotifyArtistLink": "https://open.spotify.com/artist/abc",
+  "pro": "BMI",
+  "ipiNumber": "123456789",
+  "email": "pom@gmail.com",
+  "password": "Abcd123!",
+  "role": "SONGWRITER",
+  "registrationType": "COMPANY",
+  "companyName": "Tom Music Publishing",
+  "companyNumber": "C-2026-001",
+  "address": "Dhaka, Bangladesh",
+  "director": "Pom Director"
 }
 ```
 

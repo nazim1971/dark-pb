@@ -65,10 +65,10 @@ export const registerRequestSchema = z
       });
     }
 
-    if (data.registrationType === RegistrationType.COMPANY && !data.companyPhone) {
+    if (data.registrationType === RegistrationType.COMPANY && !data.companyPhone && !data.phone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "companyPhone is required when registrationType is COMPANY",
+        message: "companyPhone or phone is required when registrationType is COMPANY",
         path: ["companyPhone"],
       });
     }

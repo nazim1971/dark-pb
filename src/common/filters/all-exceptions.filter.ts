@@ -15,6 +15,7 @@ interface ErrorResponse {
   error: string;
   timestamp: string;
   path: string;
+  details?: unknown;
 }
 
 @Catch()
@@ -96,14 +97,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
         exceptionResponse !== null &&
         "message" in exceptionResponse
       ) {
-        const messageValue = (exceptionResponse as { message: string | string[] }).message;
+        const errorBody = exceptionResponse as {
+          message: string | string[];
+          error?: string;
+          errors?: unknown;
+        };
+
+        const messageValue = errorBody.message;
         const message = Array.isArray(messageValue) ? messageValue.join(", ") : messageValue;
         const errorLabel =
-          "error" in exceptionResponse && typeof exceptionResponse.error === "string"
-            ? exceptionResponse.error
-            : this.statusLabel(status);
+          typeof errorBody.error === "string" ? errorBody.error : this.statusLabel(status);
 
-        return this.createError(status, message, errorLabel, path);
+        return this.createError(status, message, errorLabel, path, errorBody.errors);
       }
 
       return this.createError(status, "Request failed", this.statusLabel(status), path);
@@ -132,6 +137,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     message: string,
     error: string,
     path: string,
+    details?: unknown,
   ): ErrorResponse {
     return {
       statusCode,
@@ -139,6 +145,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error,
       timestamp: new Date().toISOString(),
       path,
+      ...(details !== undefined ? { details } : {}),
     };
   }
 

@@ -85,7 +85,6 @@ export class AuthController {
   @ApiOkResponse({ description: "Logged in", type: Object })
   @ApiUnauthorizedResponse({ description: "Invalid credentials" })
   @UsePipes(new ZodValidationPipe(loginRequestSchema))
-  // @ZodResponseSchema(authTokenResponseSchema)
   async login(
     @Body() dto: LoginDto,
     @Req() request: RequestWithAuthContext,

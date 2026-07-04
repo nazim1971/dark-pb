@@ -15,7 +15,7 @@ import {
   Role,
   User,
 } from "@prisma/client";
-import { compare, hash } from "bcryptjs";
+import * as bcrypt from "bcryptjs";
 import ms from "ms";
 import { randomBytes, randomUUID } from "crypto";
 import { PrismaService } from "../prisma/prisma.service";
@@ -78,7 +78,7 @@ export class AuthService {
               address: dto.address,
               director: dto.director,
               email: dto.companyEmail ?? normalizedEmail,
-              phone: dto.companyPhone,
+              phone: dto.companyPhone ?? dto.phone,
               registrationNumber: dto.companyNumber,
               type: dto.companyType ?? this.inferCompanyType(dto.role),
             },
@@ -543,11 +543,11 @@ export class AuthService {
   }
 
   private async hashValue(value: string): Promise<string> {
-    return hash(value, this.getBcryptRounds());
+    return bcrypt.hash(value, 12);
   }
 
-  private async verifyValue(value: string, hashValue: string): Promise<boolean> {
-    return compare(value, hashValue);
+  private async verifyValue(plainValue: string, hashedValue: string): Promise<boolean> {
+    return bcrypt.compare(plainValue, hashedValue);
   }
 
   private getBcryptRounds(): number {

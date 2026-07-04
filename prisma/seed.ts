@@ -1,5 +1,5 @@
 import { PrismaClient, Role } from "@prisma/client";
-import * as argon2 from "argon2";
+import * as bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -15,9 +15,7 @@ async function seedAdminUser(): Promise<void> {
     return;
   }
 
-  const passwordHash = await argon2.hash(password, {
-    type: argon2.argon2id,
-  });
+  const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_ROUNDS) || 12);
 
   await prisma.user.upsert({
     where: { email },
