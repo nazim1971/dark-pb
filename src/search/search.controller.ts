@@ -1,5 +1,7 @@
 import { Controller, Get, Query, UsePipes } from "@nestjs/common";
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
 import { ZodValidationPipe } from "../common/validation/zod-validation.pipe";
 import { SearchQueryDto } from "./dto/search-query.dto";
 import { searchQuerySchema } from "./schemas/search.zod";
@@ -15,7 +17,7 @@ export class SearchController {
   @ApiOperation({ summary: "Global search across songs, writers, publishers, and recordings" })
   @ApiOkResponse({ description: "Search results returned" })
   @UsePipes(new ZodValidationPipe(searchQuerySchema))
-  async globalSearch(@Query() query: SearchQueryDto) {
-    return this.searchService.globalSearch(query);
+  async globalSearch(@CurrentUser() user: AuthenticatedUser, @Query() query: SearchQueryDto) {
+    return this.searchService.globalSearch(user, query);
   }
 }

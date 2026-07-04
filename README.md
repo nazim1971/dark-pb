@@ -1,4 +1,4 @@
-# Dark PB Server - Complete Backend Guideline
+# Dark Lab Records Publishing Portal Server - Complete Backend Guideline
 
 **NestJS backend for a Music Publishing Administration Portal.**
 
@@ -77,34 +77,34 @@ This guide explains:
 ### Top-Level Directories
 
 ```
-├── src/
-├── prisma/
-└── dist/
+|-- src/
+|-- prisma/
+`-- dist/
 ```
 
 ### Backend Source Modules
 
 ```
 src/
-├── admin/
-├── auth/
-├── common/
-├── compositions/
-├── conflicts/
-├── contracts/
-├── kyc/
-├── notifications/
-├── prisma/
-├── publishers/
-├── recordings/
-├── reports/
-├── royalties/
-├── search/
-├── shared/
-├── statements/
-├── support/
-├── users/
-└── writers/
+|-- admin/
+|-- auth/
+|-- common/
+|-- compositions/
+|-- conflicts/
+|-- contracts/
+|-- kyc/
+|-- notifications/
+|-- prisma/
+|-- publishers/
+|-- recordings/
+|-- reports/
+|-- royalties/
+|-- search/
+|-- shared/
+|-- statements/
+|-- support/
+|-- users/
+`-- writers/
 ```
 
 ### Important Module Internals
@@ -136,6 +136,8 @@ Copy values into `.env` and fill real secrets.
 | `NODE_ENV` | Environment (development/production) |
 | `PORT` | Server port |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `DIRECT_URL` | Direct PostgreSQL connection string for Prisma migrate |
+| `ALLOWED_ORIGINS` | Comma-separated frontend origins |
 | `JWT_ACCESS_SECRET` | JWT access token secret |
 | `JWT_REFRESH_SECRET` | JWT refresh token secret |
 | `JWT_ACCESS_EXPIRATION` | Access token expiry (e.g., 15m) |
@@ -183,7 +185,7 @@ npm run prisma:seed
 ### Start Dev Server
 
 ```bash
-npm run start:dev
+npm run dev
 ```
 
 ### Build
@@ -217,12 +219,15 @@ npm run db:setup
 - Role decorator: [src/auth/decorators/roles.decorator.ts](src/auth/decorators/roles.decorator.ts)
 - Current user decorator: [src/auth/decorators/current-user.decorator.ts](src/auth/decorators/current-user.decorator.ts)
 - Public endpoint decorator: [src/auth/decorators/public.decorator.ts](src/auth/decorators/public.decorator.ts)
+- Skip KYC check decorator: [src/auth/decorators/skip-kyc-check.decorator.ts](src/auth/decorators/skip-kyc-check.decorator.ts)
 
 ### How It Works
 
 - JWT guard is global
 - Roles guard is global
+- KYC action guard is global for non-admin write routes
 - Endpoints marked `@Public()` bypass auth
+- Endpoints marked `@SkipKycCheck()` bypass KYC action guard
 - Admin routes require role `ADMIN`
 
 ---
@@ -357,10 +362,15 @@ curl -X GET http://localhost:3000/
 **Body Example:**
 ```json
 {
+  "legalName": "Araf Writer",
+  "stageName": "Araf",
+  "country": "Bangladesh",
+  "phone": "+8801XXXXXXXXX",
+  "spotifyArtistLink": "https://open.spotify.com/artist/abc",
+  "pro": "BMI",
+  "ipiNumber": "123456789",
   "email": "writer1@example.com",
   "password": "StrongPass123!",
-  "firstName": "Araf",
-  "lastName": "Writer",
   "role": "SONGWRITER",
   "registrationType": "INDIVIDUAL"
 }
@@ -369,7 +379,7 @@ curl -X GET http://localhost:3000/
 ```bash
 curl -X POST http://localhost:3000/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"writer1@example.com","password":"StrongPass123!","firstName":"Araf","lastName":"Writer","role":"SONGWRITER","registrationType":"INDIVIDUAL"}'
+  -d '{"email":"writer1@example.com","password":"StrongPass123!","legalName":"Araf Writer","role":"SONGWRITER","registrationType":"INDIVIDUAL"}'
 ```
 
 #### POST /auth/login
@@ -406,7 +416,6 @@ curl -X POST http://localhost:3000/auth/register \
 **Body Example:**
 ```json
 {
-  "email": "writer1@example.com",
   "token": "reset-token-from-email",
   "newPassword": "NewStrongPass123!"
 }
@@ -422,7 +431,6 @@ curl -X POST http://localhost:3000/auth/register \
 **Body Example:**
 ```json
 {
-  "email": "writer1@example.com",
   "token": "verify-token-from-email"
 }
 ```
@@ -444,7 +452,24 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.4 Compositions APIs
+### 10.4 KYC APIs
+
+**Controller:** [src/kyc/kyc.controller.ts](src/kyc/kyc.controller.ts)
+
+#### GET /kyc/me
+- **Auth:** JWT required
+
+#### GET /kyc/pending
+- **Auth:** ADMIN
+
+**Query Example:**
+```
+/kyc/pending?page=1&limit=20
+```
+
+---
+
+### 10.5 Compositions APIs
 
 **Controller:** [src/compositions/compositions.controller.ts](src/compositions/compositions.controller.ts)
 
@@ -558,7 +583,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.5 Contracts APIs
+### 10.6 Contracts APIs
 
 **Controller:** [src/contracts/contracts.controller.ts](src/contracts/contracts.controller.ts)
 
@@ -596,9 +621,12 @@ curl -X GET http://localhost:3000/users/me \
 **Body Example:**
 ```json
 {
-  "compositionIds": [
-    "11111111-1111-1111-1111-111111111111",
-    "22222222-2222-2222-2222-222222222222"
+  "compositions": [
+    {
+      "compositionId": "11111111-1111-1111-1111-111111111111",
+      "territory": "Worldwide",
+      "sharePercentage": 50
+    }
   ]
 }
 ```
@@ -616,7 +644,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.6 Royalties APIs
+### 10.7 Royalties APIs
 
 **Controller:** [src/royalties/royalties.controller.ts](src/royalties/royalties.controller.ts)
 
@@ -665,7 +693,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.7 Statements APIs
+### 10.8 Statements APIs
 
 **Controller:** [src/statements/statements.controller.ts](src/statements/statements.controller.ts)
 
@@ -717,7 +745,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.8 Conflicts APIs
+### 10.9 Conflicts APIs
 
 **Controller:** [src/conflicts/conflicts.controller.ts](src/conflicts/conflicts.controller.ts)
 
@@ -780,7 +808,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.9 Support Ticket APIs
+### 10.10 Support Ticket APIs
 
 **Controller:** [src/support/support.controller.ts](src/support/support.controller.ts)
 
@@ -834,7 +862,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.10 Reports APIs
+### 10.11 Reports APIs
 
 **Controller:** [src/reports/reports.controller.ts](src/reports/reports.controller.ts)
 
@@ -872,7 +900,7 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.11 Search API
+### 10.12 Search API
 
 **Controller:** [src/search/search.controller.ts](src/search/search.controller.ts)
 
@@ -896,11 +924,11 @@ curl -X GET http://localhost:3000/users/me \
 
 ---
 
-### 10.12 Admin APIs
+### 10.13 Admin APIs
 
 **Controller:** [src/admin/admin.controller.ts](src/admin/admin.controller.ts)
 
-> ⚠️ **All endpoints below require ADMIN role.**
+> All endpoints below require ADMIN role.
 
 #### PATCH /admin/kyc/:id/approve
 
@@ -1077,22 +1105,22 @@ Prompt 14 requirements are implemented through admin service actions and report 
 
 ### Active Controller Endpoints Exist For:
 
-- ✅ app
-- ✅ auth
-- ✅ users
-- ✅ compositions
-- ✅ contracts
-- ✅ royalties
-- ✅ statements
-- ✅ conflicts
-- ✅ support
-- ✅ reports
-- ✅ search
-- ✅ admin
+- app
+- auth
+- users
+- kyc
+- compositions
+- contracts
+- royalties
+- statements
+- conflicts
+- support
+- reports
+- search
+- admin
 
 ### Controllers Scaffolded but Without Functional Route Handlers:
 
-- [src/kyc/kyc.controller.ts](src/kyc/kyc.controller.ts)
 - [src/notifications/notifications.controller.ts](src/notifications/notifications.controller.ts)
 - [src/publishers/publishers.controller.ts](src/publishers/publishers.controller.ts)
 - [src/recordings/recordings.controller.ts](src/recordings/recordings.controller.ts)

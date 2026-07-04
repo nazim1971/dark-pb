@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -14,6 +15,11 @@ enum Role {
   PUBLISHER    @map("publisher")
   RECORD_LABEL @map("record_label")
   ADMIN        @map("admin")
+}
+
+enum RegistrationType {
+  INDIVIDUAL
+  COMPANY
 }
 
 enum CompanyType {
@@ -153,9 +159,17 @@ model User {
   id           String    @id @default(uuid()) @db.Uuid
   email        String    @unique
   passwordHash String
+  legalName    String?
+  stageName    String?
   firstName    String
   lastName     String
+  country      String?
+  phone        String?
+  spotifyArtistLink String?
+  pro          String?
+  ipiNumber    String?
   role         Role      @default(ARTIST)
+  registrationType RegistrationType @default(INDIVIDUAL)
   companyId    String?   @db.Uuid
   emailVerifiedAt               DateTime?
   emailVerificationTokenHash    String?
@@ -183,6 +197,8 @@ model User {
 
   @@index([companyId])
   @@index([role])
+  @@index([registrationType])
+  @@index([ipiNumber])
   @@index([emailVerifiedAt])
   @@index([deletedAt])
   @@index([createdAt])
@@ -193,6 +209,11 @@ model Company {
   id                 String      @id @default(uuid()) @db.Uuid
   name               String
   legalName          String?
+  companyNumber      String?
+  address            String?
+  director           String?
+  email              String?
+  phone              String?
   registrationNumber String?
   taxId              String?
   country            String?

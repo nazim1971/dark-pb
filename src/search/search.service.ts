@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
 import {
   SearchEntityType,
   SearchQueryDto,
@@ -30,7 +31,7 @@ export interface SearchItem {
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async globalSearch(query: SearchQueryDto) {
+  async globalSearch(user: AuthenticatedUser, query: SearchQueryDto) {
     const types = this.resolveTypes(query.types);
     const candidateLimit = Math.max(query.limit * 5, 100);
     const ranking = query.q ? await this.fetchFullTextRanks(query.q, types, candidateLimit) : [];
@@ -43,7 +44,7 @@ export class SearchService {
 
     const [compositions, writers, publishers, recordings] = await Promise.all([
       types.includes(SearchEntityType.COMPOSITION)
-        ? this.searchCompositions(query, groupedIds.composition, candidateLimit)
+        ? this.searchCompositions(user, query, groupedIds.composition, candidateLimit)
         : Promise.resolve([]),
       types.includes(SearchEntityType.WRITER)
         ? this.searchWriters(query, groupedIds.writer, candidateLimit)
@@ -203,8 +204,16 @@ export class SearchService {
     }));
   }
 
-  private async searchCompositions(query: SearchQueryDto, rankedIds: string[], limit: number) {
+  private async searchCompositions(
+    user: AuthenticatedUser,
+    query: SearchQueryDto,
+    rankedIds: string[],
+    limit: number,
+  ) {
     const where: Prisma.CompositionWhereInput = {};
+    if (user.role !== Role.ADMIN) {
+      where.ownerId = user.userId;
+    }
     if (query.song) {
       where.songTitle = { contains: query.song, mode: "insensitive" };
     }
@@ -229,6 +238,16 @@ export class SearchService {
         isrc: true,
         iswc: true,
         spotifyUrl: true,
+        owner: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            legalName: true,
+            stageName: true,
+          },
+        },
         createdAt: true,
         updatedAt: true,
       },
@@ -330,6 +349,14 @@ export class SearchService {
       isrc: string | null;
       iswc: string | null;
       spotifyUrl: string | null;
+      owner: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        legalName: string | null;
+        stageName: string | null;
+      };
       createdAt: Date;
       updatedAt: Date;
     },
@@ -348,6 +375,7 @@ export class SearchService {
         isrc: item.isrc,
         iswc: item.iswc,
         spotifyUrl: item.spotifyUrl,
+        owner: item.owner,
       },
     };
   }

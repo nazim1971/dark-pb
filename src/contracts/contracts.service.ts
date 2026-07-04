@@ -78,7 +78,8 @@ export class ContractsService {
     return this.mapContract(updated);
   }
 
-  async approve(user: AuthenticatedUser, id: string, _action: ContractActionDto) {
+  async approve(user: AuthenticatedUser, id: string, action: ContractActionDto) {
+    void action;
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException("Admin role is required to approve contracts");
     }

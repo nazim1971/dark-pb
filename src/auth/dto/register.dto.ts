@@ -32,15 +32,41 @@ export class RegisterDto {
   @MaxLength(128)
   password!: string;
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
-  firstName!: string;
+  @MaxLength(180)
+  legalName?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  lastName!: string;
+  @MaxLength(120)
+  stageName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  spotifyArtistLink?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  pro?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  ipiNumber?: string;
 
   @IsEnum(RegistrationRole)
   @Transform(({ value }: { value: unknown }) => {
@@ -67,6 +93,30 @@ export class RegisterDto {
   @MaxLength(160)
   @Transform(({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value))
   companyName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  companyNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  director?: string;
+
+  @IsOptional()
+  @IsEmail()
+  companyEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  companyPhone?: string;
 
   @IsOptional()
   @IsEnum(CompanyType)

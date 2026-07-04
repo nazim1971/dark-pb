@@ -180,4 +180,11 @@ export class AdminController {
     response.setHeader("Content-Disposition", `attachment; filename=\"${artifact.fileName}\"`);
     return new StreamableFile(artifact.buffer);
   }
+
+  @Get("users")
+  @ApiOperation({ summary: "Get all users" })
+  @ApiOkResponse({ description: "All users retrieved successfully" })
+  async getAllUsers(@Query("page") page = "1", @Query("limit") limit = "10") {
+    return this.adminService.getAllUsers({ page: Number(page), limit: Number(limit) });
+  }
 }

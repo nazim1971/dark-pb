@@ -11,3 +11,8 @@ export const reviewKycSchema = z.object({
   status: z.enum(["PENDING", "APPROVED", "REJECTED"]),
   notes: z.string().trim().max(500).optional(),
 });
+
+export const kycPendingQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});

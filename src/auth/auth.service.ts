@@ -7,7 +7,14 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { CompanyType, Prisma, Role, User } from "@prisma/client";
+import {
+  CompanyType,
+  KycStatus,
+  Prisma,
+  RegistrationType as PrismaRegistrationType,
+  Role,
+  User,
+} from "@prisma/client";
 import { compare, hash } from "bcryptjs";
 import ms from "ms";
 import { randomBytes, randomUUID } from "crypto";
@@ -56,6 +63,7 @@ export class AuthService {
     try {
       const user = await this.prisma.runInTransaction(async (tx) => {
         let companyId: string | undefined;
+        const registrationType = dto.registrationType as PrismaRegistrationType;
 
         if (dto.registrationType === RegistrationType.COMPANY) {
           if (!dto.companyName) {
@@ -66,6 +74,12 @@ export class AuthService {
             data: {
               name: dto.companyName,
               legalName: dto.companyName,
+              companyNumber: dto.companyNumber,
+              address: dto.address,
+              director: dto.director,
+              email: dto.companyEmail ?? normalizedEmail,
+              phone: dto.companyPhone,
+              registrationNumber: dto.companyNumber,
               type: dto.companyType ?? this.inferCompanyType(dto.role),
             },
           });
@@ -73,16 +87,39 @@ export class AuthService {
           companyId = company.id;
         }
 
-        return tx.user.create({
+        const { firstName, lastName } = this.resolveUserNames(dto);
+
+        const createdUser = await tx.user.create({
           data: {
             email: normalizedEmail,
             passwordHash,
-            firstName: dto.firstName.trim(),
-            lastName: dto.lastName.trim(),
+            legalName: dto.legalName?.trim(),
+            stageName: dto.stageName?.trim(),
+            firstName,
+            lastName,
+            country: dto.country?.trim(),
+            phone: dto.phone?.trim(),
+            spotifyArtistLink: dto.spotifyArtistLink?.trim(),
+            pro: dto.pro?.trim(),
+            ipiNumber: dto.ipiNumber?.trim(),
             role: dto.role as Role,
+            registrationType,
             companyId,
           },
         });
+
+        await tx.kYC.create({
+          data: {
+            userId: createdUser.id,
+            companyId,
+            documentType: "MANUAL_REVIEW",
+            country: dto.country?.trim(),
+            status: KycStatus.PENDING,
+            notes: "Created automatically during registration",
+          },
+        });
+
+        return createdUser;
       });
 
       await this.issueEmailVerificationToken(user.id, user.email);
@@ -289,6 +326,29 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  private resolveUserNames(dto: RegisterDto): { firstName: string; lastName: string } {
+    const source =
+      dto.legalName?.trim() ||
+      dto.director?.trim() ||
+      dto.companyName?.trim() ||
+      dto.email.split("@")[0];
+
+    const parts = source.split(/\s+/).filter(Boolean);
+
+    if (parts.length === 0) {
+      return { firstName: "User", lastName: "" };
+    }
+
+    if (parts.length === 1) {
+      return { firstName: parts[0], lastName: "Account" };
+    }
+
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(" "),
+    };
   }
 
   private async issueFreshSession(

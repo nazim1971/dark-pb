@@ -1,29 +1,75 @@
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { RegistrationRole, RegistrationType } from "../dto/register.dto";
-import {
-  emailValidator,
-  nameValidator,
-  passwordValidator,
-} from "../../common/validation/zod-validators";
+import { emailValidator, passwordValidator } from "../../common/validation/zod-validators";
 
 export const registerRequestSchema = z
   .object({
     email: emailValidator,
     password: passwordValidator,
-    firstName: nameValidator,
-    lastName: nameValidator,
+    legalName: z.string().trim().min(1).max(180).optional(),
+    stageName: z.string().trim().min(1).max(120).optional(),
+    country: z.string().trim().min(1).max(80).optional(),
+    phone: z.string().trim().min(3).max(40).optional(),
+    spotifyArtistLink: z.string().trim().url().max(500).optional(),
+    pro: z.string().trim().min(1).max(80).optional(),
+    ipiNumber: z.string().trim().min(1).max(80).optional(),
     role: z.nativeEnum(RegistrationRole),
     registrationType: z.nativeEnum(RegistrationType),
     companyName: z.string().trim().min(1).max(160).optional(),
+    companyNumber: z.string().trim().min(1).max(120).optional(),
+    address: z.string().trim().min(1).max(255).optional(),
+    director: z.string().trim().min(1).max(160).optional(),
+    companyEmail: emailValidator.optional(),
+    companyPhone: z.string().trim().min(3).max(40).optional(),
     companyType: z.enum(["PUBLISHER", "RECORD_LABEL", "ADMINISTRATION", "OTHER"]).optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.registrationType === RegistrationType.INDIVIDUAL && !data.legalName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "legalName is required when registrationType is INDIVIDUAL",
+        path: ["legalName"],
+      });
+    }
+
     if (data.registrationType === RegistrationType.COMPANY && !data.companyName) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "companyName is required when registrationType is COMPANY",
         path: ["companyName"],
+      });
+    }
+
+    if (data.registrationType === RegistrationType.COMPANY && !data.companyNumber) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "companyNumber is required when registrationType is COMPANY",
+        path: ["companyNumber"],
+      });
+    }
+
+    if (data.registrationType === RegistrationType.COMPANY && !data.address) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "address is required when registrationType is COMPANY",
+        path: ["address"],
+      });
+    }
+
+    if (data.registrationType === RegistrationType.COMPANY && !data.director) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "director is required when registrationType is COMPANY",
+        path: ["director"],
+      });
+    }
+
+    if (data.registrationType === RegistrationType.COMPANY && !data.companyPhone) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "companyPhone is required when registrationType is COMPANY",
+        path: ["companyPhone"],
       });
     }
   });

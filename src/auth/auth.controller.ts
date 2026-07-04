@@ -24,6 +24,7 @@ import { REFRESH_TOKEN_COOKIE } from "./auth.constants";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./decorators/current-user.decorator";
 import { Public } from "./decorators/public.decorator";
+import { SkipKycCheck } from "./decorators/skip-kyc-check.decorator";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
@@ -49,6 +50,7 @@ interface MessageResponse {
 }
 
 @ApiTags("Auth")
+@SkipKycCheck()
 @Controller("auth")
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
@@ -62,7 +64,6 @@ export class AuthController {
   @ApiBody({ type: RegisterDto })
   @ApiOkResponse({ description: "User registered", type: Object })
   @UsePipes(new ZodValidationPipe(registerRequestSchema))
-  @ZodResponseSchema(authTokenResponseSchema)
   async register(
     @Body() dto: RegisterDto,
     @Req() request: RequestWithAuthContext,
@@ -71,7 +72,8 @@ export class AuthController {
     const result = await this.authService.register(dto, request.authContext ?? {});
 
     this.setRefreshTokenCookie(response, result.refreshToken, result.refreshTokenMaxAge);
-    return result.body;
+    const resultBody = result.body;
+    return authTokenResponseSchema.parse(resultBody);
   }
 
   @Public()
@@ -83,7 +85,7 @@ export class AuthController {
   @ApiOkResponse({ description: "Logged in", type: Object })
   @ApiUnauthorizedResponse({ description: "Invalid credentials" })
   @UsePipes(new ZodValidationPipe(loginRequestSchema))
-  @ZodResponseSchema(authTokenResponseSchema)
+  // @ZodResponseSchema(authTokenResponseSchema)
   async login(
     @Body() dto: LoginDto,
     @Req() request: RequestWithAuthContext,
@@ -101,7 +103,7 @@ export class AuthController {
   @Post("refresh")
   @ApiOperation({ summary: "Refresh access token" })
   @ApiOkResponse({ description: "Token refreshed", type: Object })
-  @ZodResponseSchema(authTokenResponseSchema)
+  // @ZodResponseSchema(authTokenResponseSchema)
   async refresh(
     @Req() request: RequestWithAuthContext,
     @Res({ passthrough: true }) response: Response,
@@ -114,7 +116,7 @@ export class AuthController {
     const result = await this.authService.refresh(refreshToken, request.authContext ?? {});
 
     this.setRefreshTokenCookie(response, result.refreshToken, result.refreshTokenMaxAge);
-    return result.body;
+    return authTokenResponseSchema.parse(result.body);
   }
 
   @Public()

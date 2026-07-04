@@ -1,12 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import {
-  AuditAction,
-  AuditEntityType,
-  ConflictStatus,
-  KycStatus,
-  PublishingStatus,
-  Prisma,
-} from "@prisma/client";
+import { AuditAction, AuditEntityType, KycStatus, PublishingStatus, Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
 import { PrismaService } from "../prisma/prisma.service";
 import { ReportsService } from "../reports/reports.service";
@@ -347,5 +340,50 @@ export class AdminService {
         changes: changes as Prisma.InputJsonValue,
       },
     });
+  }
+
+  async getAllUsers(query: { page: number; limit: number }) {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(100, Math.max(1, query.limit || 10));
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          legalName: true,
+          stageName: true,
+          role: true,
+          registrationType: true,
+          country: true,
+          phone: true,
+          createdAt: true,
+          updatedAt: true,
+          kycProfile: {
+            select: {
+              id: true,
+              status: true,
+              reviewedAt: true,
+            },
+          },
+        },
+      }),
+      this.prisma.user.count(),
+    ]);
+
+    return {
+      meta: {
+        page,
+        limit,
+        total,
+      },
+      users,
+    };
   }
 }

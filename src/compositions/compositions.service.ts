@@ -155,8 +155,9 @@ export class CompositionsService {
   async submitForReview(
     user: AuthenticatedUser,
     compositionId: string,
-    _: CompositionActionDto,
+    action: CompositionActionDto,
   ): Promise<Prisma.CompositionGetPayload<{ include: { lyrics: true } }>> {
+    void action;
     const composition = await this.getOwnedComposition(user, compositionId);
 
     if (composition.status !== PublishingStatus.DRAFT) {
@@ -192,8 +193,9 @@ export class CompositionsService {
   async approveComposition(
     adminUser: AuthenticatedUser,
     compositionId: string,
-    _: CompositionActionDto,
+    action: CompositionActionDto,
   ): Promise<Prisma.CompositionGetPayload<{ include: { lyrics: true } }>> {
+    void action;
     this.assertAdmin(adminUser);
 
     const composition = await this.prisma.composition.findUnique({
@@ -221,8 +223,9 @@ export class CompositionsService {
   async rejectComposition(
     adminUser: AuthenticatedUser,
     compositionId: string,
-    _: CompositionActionDto,
+    action: CompositionActionDto,
   ): Promise<Prisma.CompositionGetPayload<{ include: { lyrics: true } }>> {
+    void action;
     this.assertAdmin(adminUser);
 
     const composition = await this.prisma.composition.findUnique({
@@ -253,7 +256,19 @@ export class CompositionsService {
   ): Promise<Prisma.CompositionGetPayload<{ include: { lyrics: true } }>> {
     const composition = await this.prisma.composition.findUnique({
       where: { id: compositionId },
-      include: { lyrics: true },
+      include: {
+        lyrics: true,
+        owner: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            legalName: true,
+            stageName: true,
+          },
+        },
+      },
     });
 
     if (!composition) {
@@ -309,7 +324,19 @@ export class CompositionsService {
     const [items, total] = await Promise.all([
       this.prisma.composition.findMany({
         where,
-        include: { lyrics: true },
+        include: {
+          lyrics: true,
+          owner: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              legalName: true,
+              stageName: true,
+            },
+          },
+        },
         orderBy: { updatedAt: "desc" },
         skip,
         take: limit,
