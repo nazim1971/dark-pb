@@ -119,13 +119,20 @@ Some admin/royalty endpoints use `"data"` instead of `"items"` — same `meta` s
 
 Base URL: `http://localhost:3000`
 
-Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `ADMIN` role
+Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `ADMIN` role · **KYC** = verified KYC required for writes
+
+> Unless noted, JSON responses are wrapped as `{ success, message, data, timestamp }`.  
+> **Export** endpoints return a file download (`Content-Disposition: attachment`) — not JSON.
 
 ---
 
 ### Health
 
 #### `GET /` — Public
+
+Health check. No request body.
+
+**Response `200`**
 
 ```json
 {
@@ -134,22 +141,19 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
+```bash
+curl http://localhost:3000/
+```
+
 ---
 
 ### Auth (`/auth`)
 
-| Method | Path | Access | Description |
-|--------|------|--------|-------------|
-| POST | `/auth/register` | Public | Register account |
-| POST | `/auth/login` | Public | Login |
-| POST | `/auth/refresh` | Public | Refresh access token (cookie) |
-| POST | `/auth/logout` | Public | Logout |
-| POST | `/auth/forgot-password` | Public | Request reset token |
-| POST | `/auth/reset-password` | Public | Reset password |
-| POST | `/auth/send-verification-email` | Auth | Send verification email |
-| POST | `/auth/verify-email` | Public | Verify email token |
+#### `POST /auth/register` — Public
 
-**POST `/auth/register` — Songwriter (individual)**
+Register a new account (individual or company).
+
+**Request — Songwriter (individual)**
 
 ```json
 {
@@ -168,7 +172,7 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-**POST `/auth/register` — Publisher (company)**
+**Request — Publisher (company)**
 
 ```json
 {
@@ -187,16 +191,7 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-**POST `/auth/login`**
-
-```json
-{
-  "email": "writer@example.com",
-  "password": "SecurePass123!"
-}
-```
-
-**Response (register / login / refresh)**
+**Response `201`**
 
 ```json
 {
@@ -207,31 +202,181 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
     "tokenType": "Bearer",
     "expiresIn": "15m",
     "user": {
-      "id": "uuid",
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "email": "writer@example.com",
       "firstName": "Jane",
       "lastName": "Doe",
       "role": "SONGWRITER",
-      "status": "ACTIVE",
-      "kycStatus": "PENDING"
+      "createdAt": "2026-07-05T15:00:00.000Z",
+      "updatedAt": "2026-07-05T15:00:00.000Z"
     }
   },
   "timestamp": "2026-07-05T15:00:00.000Z"
 }
 ```
 
-**POST `/auth/forgot-password`**
+Sets an HTTP-only `refreshToken` cookie on `/auth`.
 
-```json
-{ "email": "writer@example.com" }
+```bash
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"writer@example.com","password":"SecurePass123!","role":"SONGWRITER","registrationType":"INDIVIDUAL","legalFirstName":"Jane","legalLastName":"Doe","country":"GB"}'
 ```
 
-**POST `/auth/reset-password`**
+---
+
+#### `POST /auth/login` — Public
+
+**Request**
+
+```json
+{
+  "email": "writer@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Response `200`** — same shape as register (access token + user + refresh cookie).
+
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{"email":"writer@example.com","password":"SecurePass123!"}'
+```
+
+---
+
+#### `POST /auth/refresh` — Public
+
+Refresh the access token using the signed refresh cookie. No request body.
+
+**Response `200`** — same shape as login.
+
+```bash
+curl -X POST http://localhost:3000/auth/refresh -b cookies.txt
+```
+
+---
+
+#### `POST /auth/logout` — Public
+
+Invalidate the refresh session and clear the cookie. No request body.
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "message": "Logged out successfully"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+```bash
+curl -X POST http://localhost:3000/auth/logout -b cookies.txt
+```
+
+---
+
+#### `POST /auth/forgot-password` — Public
+
+**Request**
+
+```json
+{
+  "email": "writer@example.com"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "message": "If an account exists for this email, a password reset link has been sent"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `POST /auth/reset-password` — Public
+
+**Request**
 
 ```json
 {
   "token": "reset-token-from-email",
-  "password": "NewSecurePass123!"
+  "newPassword": "NewSecurePass123!"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "message": "Password reset successfully"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `POST /auth/send-verification-email` — Auth
+
+Send an email verification token to the logged-in user. No request body.
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "message": "Verification email sent"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+```bash
+curl -X POST http://localhost:3000/auth/send-verification-email \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+---
+
+#### `POST /auth/verify-email` — Public
+
+**Request**
+
+```json
+{
+  "token": "verification-token-from-email"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "message": "Email verified successfully"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
 }
 ```
 
@@ -239,16 +384,65 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 
 ### Users (`/users`) — Auth
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/users/me` | Current profile |
-| GET | `/users/me/account-settings` | Account settings |
-| PATCH | `/users/me/profile` | Update profile |
-| PATCH | `/users/me/account-settings` | Update settings |
-| PATCH | `/users/me/change-password` | Change password |
-| PATCH | `/users/:id/status` | Admin: suspend/activate |
+#### `GET /users/me` — Auth
 
-**PATCH `/users/me/profile`**
+Get the current user's profile. No request body.
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "email": "writer@example.com",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "role": "SONGWRITER",
+    "status": "ACTIVE",
+    "registrationType": "INDIVIDUAL",
+    "stageName": "JD",
+    "country": "GB",
+    "phone": "+447700900000",
+    "pro": "PRS",
+    "ipiNumber": "00123456789",
+    "createdAt": "2026-07-05T15:00:00.000Z",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /users/me/account-settings` — Auth
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "email": "writer@example.com",
+    "country": "GB",
+    "phone": "+447700900000",
+    "status": "ACTIVE",
+    "role": "SONGWRITER",
+    "registrationType": "INDIVIDUAL",
+    "company": null
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /users/me/profile` — Auth
+
+**Request** (all fields optional)
 
 ```json
 {
@@ -262,7 +456,34 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-**PATCH `/users/me/change-password`**
+**Response `200`** — updated profile (same shape as `GET /users/me`).
+
+---
+
+#### `PATCH /users/me/account-settings` — Auth
+
+**Request** (all fields optional)
+
+```json
+{
+  "email": "newemail@example.com",
+  "country": "US",
+  "phone": "+15551234567",
+  "companyLegalName": "Acme Publishing Ltd",
+  "representativeName": "John Smith",
+  "registrationNumber": "12345678",
+  "vatNumber": "GB123456789",
+  "website": "https://acmepublishing.com"
+}
+```
+
+**Response `200`** — updated account settings (same shape as `GET /users/me/account-settings`).
+
+---
+
+#### `PATCH /users/me/change-password` — Auth
+
+**Request**
 
 ```json
 {
@@ -271,17 +492,57 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "message": "Password changed successfully"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /users/:id/status` — Admin
+
+**Request**
+
+```json
+{
+  "status": "SUSPENDED",
+  "reason": "Terms of service violation"
+}
+```
+
+Status values: `ACTIVE` · `SUSPENDED`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "user-uuid",
+    "email": "writer@example.com",
+    "status": "SUSPENDED",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
 ---
 
 ### KYC (`/kyc`) — Auth
 
-| Method | Path | Access | Description |
-|--------|------|--------|-------------|
-| POST | `/kyc/submit` | Auth | Submit KYC |
-| GET | `/kyc/me` | Auth | My KYC status |
-| GET | `/kyc/pending` | Admin | List pending KYC |
+#### `POST /kyc/submit` — Auth
 
-**POST `/kyc/submit`**
+**Request**
 
 ```json
 {
@@ -292,19 +553,89 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "kyc-uuid",
+    "userId": "user-uuid",
+    "documentType": "PASSPORT",
+    "documentNumber": "AB1234567",
+    "country": "GB",
+    "status": "PENDING",
+    "notes": "First submission",
+    "createdAt": "2026-07-05T15:00:00.000Z",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /kyc/me` — Auth
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "status": "PENDING",
+    "latestSubmission": {
+      "id": "kyc-uuid",
+      "documentType": "PASSPORT",
+      "status": "PENDING",
+      "submittedAt": "2026-07-05T15:00:00.000Z"
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /kyc/pending` — Admin
+
+**Query:** `?page=1&limit=20`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "kyc-uuid",
+        "userId": "user-uuid",
+        "documentType": "PASSPORT",
+        "status": "PENDING",
+        "user": {
+          "email": "writer@example.com",
+          "firstName": "Jane",
+          "lastName": "Doe"
+        }
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
 ---
 
 ### Writers (`/writers`) — Auth + KYC
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/writers` | Create writer |
-| GET | `/writers` | List (paginated) |
-| GET | `/writers/:id` | Get by ID |
-| PATCH | `/writers/:id` | Update |
-| DELETE | `/writers/:id` | Soft delete |
+#### `POST /writers` — Auth + KYC
 
-**POST `/writers`**
+**Request**
 
 ```json
 {
@@ -316,21 +647,95 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-**GET `/writers?page=1&limit=20&q=jane`**
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "writer-uuid",
+    "userId": "user-uuid",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "legalName": "Jane Doe",
+    "pro": "PRS",
+    "ipiNumber": "00123456789",
+    "dob": "1990-05-15T00:00:00.000Z",
+    "createdAt": "2026-07-05T15:00:00.000Z",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /writers` — Auth + KYC
+
+**Query:** `?page=1&limit=20&q=jane&pro=PRS&ipiNumber=00123456789`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "writer-uuid",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "legalName": "Jane Doe",
+        "pro": "PRS",
+        "ipiNumber": "00123456789"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /writers/:id` — Auth + KYC
+
+**Response `200`** — single writer object (same fields as create response).
+
+---
+
+#### `PATCH /writers/:id` — Auth + KYC
+
+**Request** (all fields optional)
+
+```json
+{
+  "firstName": "Jane",
+  "lastName": "Smith",
+  "pro": "ASCAP",
+  "ipiNumber": "00987654321"
+}
+```
+
+**Response `200`** — updated writer object.
+
+---
+
+#### `DELETE /writers/:id` — Auth + KYC
+
+Soft-deletes the writer. No request body.
+
+**Response `200`** — deleted writer record.
 
 ---
 
 ### Songs (`/songs`) — Auth + KYC
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/songs` | Register song |
-| GET | `/songs` | List (paginated) |
-| GET | `/songs/:id` | Get by ID |
-| PATCH | `/songs/:id` | Update |
-| DELETE | `/songs/:id` | Soft delete |
+#### `POST /songs` — Auth + KYC
 
-**POST `/songs`**
+**Request**
 
 ```json
 {
@@ -352,26 +757,110 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-> Writer splits must total **exactly 100%**.  
-> `spotifyUrl` is required when `released` is `true`.
+> Writer splits must total **exactly 100%**. `spotifyUrl` is required when `released` is `true`.
 
-**GET `/songs?page=1&limit=20&q=midnight&status=SUBMITTED`**
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "song-uuid",
+    "songTitle": "Midnight Drive",
+    "artistName": "JD",
+    "released": true,
+    "status": "SUBMITTED",
+    "isrc": "GBUM71234567",
+    "spotifyUrl": "https://open.spotify.com/track/abc123",
+    "owner": {
+      "id": "user-uuid",
+      "email": "writer@example.com",
+      "firstName": "Jane",
+      "lastName": "Doe"
+    },
+    "writers": [
+      {
+        "writerId": "writer-uuid-1",
+        "splitPercentage": 60,
+        "writer": { "id": "writer-uuid-1", "firstName": "Jane", "lastName": "Doe" }
+      }
+    ],
+    "lyrics": { "content": "Verse 1..." },
+    "createdAt": "2026-07-05T15:00:00.000Z",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /songs` — Auth + KYC
+
+**Query:** `?page=1&limit=20&q=midnight&status=SUBMITTED&released=true&language=English`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "song-uuid",
+        "songTitle": "Midnight Drive",
+        "artistName": "JD",
+        "status": "SUBMITTED",
+        "released": true
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /songs/:id` — Auth + KYC
+
+**Response `200`** — full song with owner, writers, and lyrics (same shape as create response).
+
+---
+
+#### `PATCH /songs/:id` — Auth + KYC
+
+**Request** (partial update; splits must still total 100% if `writers` is provided)
+
+```json
+{
+  "songTitle": "Midnight Drive (Radio Edit)",
+  "duration": 195,
+  "writers": [
+    { "writerId": "writer-uuid-1", "splitPercentage": 100 }
+  ]
+}
+```
+
+**Response `200`** — updated song object.
+
+---
+
+#### `DELETE /songs/:id` — Auth + KYC
+
+Soft-deletes the song. No request body.
+
+**Response `200`** — deleted song record.
 
 ---
 
 ### Royalties (`/royalties`) — Auth
 
-| Method | Path | Access | Description |
-|--------|------|--------|-------------|
-| POST | `/royalties` | Admin | Create royalty |
-| GET | `/royalties` | Auth | List (scoped to owner unless admin) |
-| GET | `/royalties/analytics` | Auth | Analytics |
-| GET | `/royalties/export` | Auth | Export CSV/Excel/PDF |
-| GET | `/royalties/:id` | Auth | Get by ID |
-| PATCH | `/royalties/:id` | Admin | Update |
-| DELETE | `/royalties/:id` | Admin | Soft delete |
+#### `POST /royalties` — Admin
 
-**POST `/royalties`** (Admin)
+**Request**
 
 ```json
 {
@@ -388,21 +877,162 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-**GET `/royalties?year=2026&month=1&dsp=Spotify&page=1&limit=20`**
+DSP values: `Spotify` · `Apple Music` · `YouTube` · `TikTok` · `Meta` · `Other`
+
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "royalty-uuid",
+    "compositionId": "song-uuid",
+    "type": "PERFORMANCE",
+    "status": "PENDING",
+    "sourceDsp": "Spotify",
+    "country": "GB",
+    "amount": "1250.50",
+    "sharePercentage": "15.00",
+    "currency": "USD",
+    "createdAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /royalties` — Auth
+
+**Query:** `?page=1&limit=20&year=2026&month=1&dsp=Spotify&country=GB&type=PERFORMANCE&status=PENDING`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "data": [
+      {
+        "id": "royalty-uuid",
+        "type": "PERFORMANCE",
+        "status": "PENDING",
+        "song": "Midnight Drive",
+        "compositionId": "song-uuid",
+        "sourceDsp": "Spotify",
+        "country": "GB",
+        "periodYear": 2026,
+        "periodMonth": 1,
+        "grossAmount": 1250.5,
+        "adminSharePercentage": 15,
+        "adminIncome": 187.58,
+        "ownerIncome": 1062.92,
+        "currency": "USD"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1 },
+    "summary": {
+      "totalGrossAmount": 1250.5,
+      "totalAdminIncome": 187.58,
+      "totalOwnerIncome": 1062.92,
+      "currency": "USD",
+      "recordCount": 1
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /royalties/analytics` — Auth
+
+**Query:** `?year=2026&month=1&dsp=Spotify`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "totals": {
+      "grossAmount": 1250.5,
+      "averageAdminSharePercentage": 15,
+      "recordCount": 1
+    },
+    "byType": [
+      { "type": "PERFORMANCE", "amount": 1250.5, "count": 1 }
+    ],
+    "byCountry": [
+      { "country": "GB", "amount": 1250.5, "count": 1 }
+    ],
+    "byDsp": [
+      { "dsp": "Spotify", "amount": 1250.5, "count": 1 }
+    ],
+    "byMonth": [
+      { "year": 2026, "month": 1, "amount": 1250.5, "count": 1 }
+    ]
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /royalties/export` — Auth
+
+**Query:** `?format=csv&year=2026&month=1&dsp=Spotify`
+
+Formats: `csv` · `excel` · `pdf`
+
+**Response `200`** — file download (not JSON).
+
+```
+Content-Type: text/csv
+Content-Disposition: attachment; filename="royalties-2026-01.csv"
+```
+
+---
+
+#### `GET /royalties/:id` — Auth
+
+**Response `200`** — single royalty object (same mapped fields as list items).
+
+---
+
+#### `PATCH /royalties/:id` — Admin
+
+**Request** (partial)
+
+```json
+{
+  "grossAmount": 1300.0,
+  "status": "PROCESSED"
+}
+```
+
+Status values: `PENDING` · `PROCESSED` · `DISPUTED` · `PAID`
+
+**Response `200`** — updated royalty object.
+
+---
+
+#### `DELETE /royalties/:id` — Admin
+
+Soft-deletes the royalty. No request body.
+
+**Response `200`** — deleted royalty record.
 
 ---
 
 ### Statements (`/statements`) — Auth
 
-| Method | Path | Access | Description |
-|--------|------|--------|-------------|
-| POST | `/statements/generate` | Admin | Generate statement |
-| GET | `/statements` | Auth | List |
-| GET | `/statements/export` | Admin | Bulk export |
-| GET | `/statements/:id` | Auth | Get by ID |
-| GET | `/statements/:id/export` | Auth | Download PDF/CSV/CWR |
+#### `POST /statements/generate` — Admin
 
-**POST `/statements/generate`** (Admin)
+**Request**
 
 ```json
 {
@@ -413,20 +1043,112 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
-**GET `/statements/:id/export?format=pdf`**
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "statement-uuid",
+    "userId": "user-uuid",
+    "periodStart": "2026-01-01T00:00:00.000Z",
+    "periodEnd": "2026-01-31T00:00:00.000Z",
+    "status": "DRAFT",
+    "currency": "USD",
+    "totalAmount": "1062.92",
+    "createdAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /statements` — Auth
+
+**Query:** `?page=1&limit=20&year=2026&month=1&status=DRAFT`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "statement-uuid",
+        "periodStart": "2026-01-01T00:00:00.000Z",
+        "periodEnd": "2026-01-31T00:00:00.000Z",
+        "status": "DRAFT",
+        "currency": "USD",
+        "totalAmount": "1062.92"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /statements/export` — Admin
+
+**Query:** `?format=csv&year=2026&month=1`
+
+Formats: `csv` · `excel` · `pdf` · `cwr`
+
+**Response `200`** — file download (not JSON).
+
+---
+
+#### `GET /statements/:id` — Auth
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "statement-uuid",
+    "userId": "user-uuid",
+    "periodStart": "2026-01-01T00:00:00.000Z",
+    "periodEnd": "2026-01-31T00:00:00.000Z",
+    "status": "DRAFT",
+    "currency": "USD",
+    "totalAmount": "1062.92",
+    "lineItems": [
+      {
+        "royaltyId": "royalty-uuid",
+        "song": "Midnight Drive",
+        "amount": "1062.92"
+      }
+    ]
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /statements/:id/export` — Auth
+
+**Query:** `?format=pdf`
+
+Formats: `csv` · `excel` · `pdf` · `cwr`
+
+**Response `200`** — file download (not JSON).
 
 ---
 
 ### Notifications (`/notifications`) — Auth
 
-| Method | Path | Access | Description |
-|--------|------|--------|-------------|
-| POST | `/notifications` | Admin | Create notification |
-| GET | `/notifications` | Auth | List my notifications |
-| PATCH | `/notifications/:id/read` | Auth | Mark as read |
-| PATCH | `/notifications/read-all` | Auth | Mark all read |
+#### `POST /notifications` — Admin
 
-**POST `/notifications`** (Admin)
+**Request**
 
 ```json
 {
@@ -437,15 +1159,105 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
+Category values: `ANNOUNCEMENT` · `SYSTEM_UPDATE` · `STATUS_UPDATE`
+
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "notification-uuid",
+    "userId": "user-uuid",
+    "category": "ANNOUNCEMENT",
+    "title": "Platform maintenance",
+    "message": "Scheduled maintenance on Sunday 2am UTC.",
+    "isRead": false,
+    "createdAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /notifications` — Auth
+
+**Query:** `?page=1&limit=20&isRead=false&category=ANNOUNCEMENT`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "notification-uuid",
+        "category": "ANNOUNCEMENT",
+        "title": "Platform maintenance",
+        "message": "Scheduled maintenance on Sunday 2am UTC.",
+        "isRead": false,
+        "createdAt": "2026-07-05T15:00:00.000Z"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /notifications/:id/read` — Auth
+
+Mark one notification as read. No request body.
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "notification-uuid",
+    "isRead": true,
+    "readAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /notifications/read-all` — Auth
+
+Mark all notifications as read. No request body.
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "updatedCount": 5
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
 ---
 
 ### Support (`/support`)
 
-| Method | Path | Access | Description |
-|--------|------|--------|-------------|
-| GET | `/support/contact` | Public | Email & WhatsApp contact info |
+#### `GET /support/contact` — Public
 
-**GET `/support/contact`**
+Returns support email and WhatsApp contact details. No request body.
+
+**Response `200`**
 
 ```json
 {
@@ -461,47 +1273,337 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 }
 ```
 
+```bash
+curl http://localhost:3000/support/contact
+```
+
 ---
 
 ### Search (`/search`) — Auth
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/search` | Global search |
+#### `GET /search` — Auth
 
-**GET `/search?q=midnight&types=song,writer&page=1&limit=20`**
+**Query:** `?q=midnight&types=song,writer&page=1&limit=20&sortBy=relevance&sortDirection=desc`
 
-- **Users:** songs, writers  
-- **Admin:** also users, publishers (user accounts), record labels
+- **Non-admin:** `song`, `writer`
+- **Admin:** also `user`, `publisher`, `recordLabel`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "data": [
+      {
+        "entityType": "song",
+        "id": "song-uuid",
+        "title": "Midnight Drive",
+        "subtitle": "JD",
+        "score": 12,
+        "createdAt": "2026-07-05T15:00:00.000Z",
+        "updatedAt": "2026-07-05T15:00:00.000Z",
+        "payload": { "status": "SUBMITTED", "released": true }
+      },
+      {
+        "entityType": "writer",
+        "id": "writer-uuid",
+        "title": "Jane Doe",
+        "subtitle": "PRS",
+        "score": 8,
+        "createdAt": "2026-07-05T14:00:00.000Z",
+        "updatedAt": "2026-07-05T14:00:00.000Z",
+        "payload": { "ipiNumber": "00123456789" }
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 2 },
+    "filters": {
+      "q": "midnight",
+      "types": ["song", "writer"]
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
 
 ---
 
 ### Admin (`/admin`) — Admin only
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/admin/dashboard/stats` | Dashboard counts |
-| GET | `/admin/dashboard/analytics` | Time-series analytics |
-| GET | `/admin/users` | List users |
-| PATCH | `/admin/users/:id/activate` | Activate user |
-| PATCH | `/admin/users/:id/suspend` | Suspend user |
-| GET | `/admin/kyc` | List KYC records |
-| PATCH | `/admin/kyc/:id/approve` | Approve KYC |
-| PATCH | `/admin/kyc/:id/verify` | Verify KYC (alias) |
-| PATCH | `/admin/kyc/:id/reject` | Reject KYC |
-| GET | `/admin/songs` | List all songs |
-| PATCH | `/admin/songs/:id/status` | Update song status |
-| PATCH | `/admin/songs/:id/metadata` | Edit song metadata |
-| PATCH | `/admin/songs/:id/iswc` | Add ISWC |
-| PATCH | `/admin/writers/:id/ipi` | Add writer IPI |
-| GET | `/admin/royalties` | List royalties |
-| GET | `/admin/statements` | List statements |
-| PATCH | `/admin/statements/:id/status` | Update statement status |
-| GET | `/admin/reports/dashboard` | Admin report summary |
-| GET | `/admin/reports/activity` | Audit activity log |
-| GET | `/admin/reports/export` | Export CSV or CWR |
+#### `GET /admin/dashboard/stats` — Admin
 
-**PATCH `/admin/songs/:id/status`**
+**Query:** `?from=2026-01-01&to=2026-12-31` (optional date range)
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "stats": {
+      "totalUsers": 120,
+      "songwriters": 85,
+      "publishers": 20,
+      "recordLabels": 10,
+      "pendingKyc": 5,
+      "verifiedKyc": 90,
+      "songs": 340,
+      "royalties": 1250,
+      "statements": 48
+    },
+    "filters": {
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-12-31T00:00:00.000Z"
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/dashboard/analytics` — Admin
+
+**Query:** `?from=2026-01-01&to=2026-12-31`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "usersOverTime": [
+      { "date": "2026-01-01", "count": 3 },
+      { "date": "2026-01-02", "count": 5 }
+    ],
+    "songsOverTime": [
+      { "date": "2026-01-01", "count": 10 }
+    ],
+    "royaltiesOverTime": [
+      { "date": "2026-01-01", "amount": 5000.0 }
+    ],
+    "filters": {
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-12-31T00:00:00.000Z"
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/users` — Admin
+
+**Query:** `?page=1&limit=20&search=jane&role=SONGWRITER&status=ACTIVE&registrationType=INDIVIDUAL`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "user-uuid",
+        "email": "writer@example.com",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "role": "SONGWRITER",
+        "status": "ACTIVE",
+        "registrationType": "INDIVIDUAL",
+        "createdAt": "2026-07-05T15:00:00.000Z"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /admin/users/:id/activate` — Admin
+
+**Request** (optional)
+
+```json
+{
+  "note": "Account reinstated after review"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "user-uuid",
+    "status": "ACTIVE",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /admin/users/:id/suspend` — Admin
+
+**Request** (optional)
+
+```json
+{
+  "note": "Suspended for policy violation"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "user-uuid",
+    "status": "SUSPENDED",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/kyc` — Admin
+
+**Query:** `?page=1&limit=20&search=jane&status=PENDING`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "kyc-uuid",
+        "userId": "user-uuid",
+        "documentType": "PASSPORT",
+        "status": "PENDING",
+        "user": {
+          "email": "writer@example.com",
+          "firstName": "Jane",
+          "lastName": "Doe"
+        }
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /admin/kyc/:id/approve` — Admin
+
+**Request** (optional)
+
+```json
+{
+  "note": "Documents verified"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "kyc-uuid",
+    "status": "VERIFIED",
+    "reviewedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /admin/kyc/:id/verify` — Admin
+
+Alias for approve. Same request and response as `PATCH /admin/kyc/:id/approve`.
+
+---
+
+#### `PATCH /admin/kyc/:id/reject` — Admin
+
+**Request** (optional)
+
+```json
+{
+  "note": "Document image is unreadable"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "kyc-uuid",
+    "status": "REJECTED",
+    "reviewedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/songs` — Admin
+
+**Query:** `?page=1&limit=20&search=midnight&status=SUBMITTED&released=true`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "song-uuid",
+        "songTitle": "Midnight Drive",
+        "artistName": "JD",
+        "status": "SUBMITTED",
+        "owner": { "email": "writer@example.com" }
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /admin/songs/:id/status` — Admin
+
+**Request**
 
 ```json
 {
@@ -512,7 +1614,26 @@ Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `A
 
 Song status values: `SUBMITTED` · `PROCESSING` · `REGISTERED`
 
-**PATCH `/admin/songs/:id/metadata`**
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "song-uuid",
+    "status": "REGISTERED",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `PATCH /admin/songs/:id/metadata` — Admin
+
+**Request** (all fields optional)
 
 ```json
 {
@@ -520,34 +1641,275 @@ Song status values: `SUBMITTED` · `PROCESSING` · `REGISTERED`
   "language": "English",
   "genre": "Pop",
   "isrc": "GBUM71234567",
-  "spotifyUrl": "https://open.spotify.com/track/abc123"
+  "spotifyUrl": "https://open.spotify.com/track/abc123",
+  "appleMusicUrl": "https://music.apple.com/track/abc123",
+  "youtubeUrl": "https://youtube.com/watch?v=abc123",
+  "releaseDate": "2025-06-01",
+  "version": "Remaster"
 }
 ```
 
-**PATCH `/admin/songs/:id/iswc`**
+**Response `200`** — updated song metadata object.
+
+---
+
+#### `PATCH /admin/songs/:id/iswc` — Admin
+
+**Request**
 
 ```json
-{ "iswc": "T-123456789-0" }
+{
+  "iswc": "T-123456789-0"
+}
 ```
 
-**PATCH `/admin/kyc/:id/approve`**
+**Response `200`**
 
 ```json
-{ "note": "Documents verified" }
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "song-uuid",
+    "iswc": "T-123456789-0",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
 ```
+
+---
+
+#### `PATCH /admin/writers/:id/ipi` — Admin
+
+**Request**
+
+```json
+{
+  "ipi": "00123456789"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "writer-uuid",
+    "ipiNumber": "00123456789",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/royalties` — Admin
+
+**Query:** `?page=1&limit=20&year=2026&month=1&dsp=Spotify`
+
+**Response `200`** — same shape as `GET /royalties` (paginated `data` + `summary`).
+
+---
+
+#### `GET /admin/statements` — Admin
+
+**Query:** `?page=1&limit=20&year=2026&month=1&status=DRAFT`
+
+**Response `200`** — same shape as `GET /statements`.
+
+---
+
+#### `PATCH /admin/statements/:id/status` — Admin
+
+**Request**
+
+```json
+{
+  "status": "FINALIZED",
+  "note": "Ready to send"
+}
+```
+
+Statement status values: `DRAFT` · `FINALIZED` · `SENT` · `PAID`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "id": "statement-uuid",
+    "status": "FINALIZED",
+    "updatedAt": "2026-07-05T15:00:00.000Z"
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/reports/dashboard` — Admin
+
+**Query:** `?from=2026-01-01&to=2026-12-31&format=csv`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "summary": {
+      "totalRoyalties": 1250,
+      "totalStatements": 48,
+      "totalGrossAmount": 250000.0
+    },
+    "period": {
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-12-31T00:00:00.000Z"
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/reports/activity` — Admin
+
+**Query:** `?page=1&limit=20&action=UPDATE&entityType=COMPOSITION`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "audit-uuid",
+        "action": "UPDATE",
+        "entityType": "COMPOSITION",
+        "entityId": "song-uuid",
+        "userId": "admin-uuid",
+        "metadata": { "field": "status", "from": "SUBMITTED", "to": "REGISTERED" },
+        "createdAt": "2026-07-05T15:00:00.000Z"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /admin/reports/export` — Admin
+
+**Query:** `?from=2026-01-01&to=2026-12-31&format=csv`
+
+Formats: `csv` · `cwr`
+
+**Response `200`** — file download (not JSON).
 
 ---
 
 ### Reports (`/reports`) — Admin only
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/reports/royalties` | Royalty report + analytics |
-| GET | `/reports/royalties/export` | Export royalties |
-| GET | `/reports/statements` | Statement report |
-| GET | `/reports/statements/export` | Export statements |
+#### `GET /reports/royalties` — Admin
 
-**GET `/reports/royalties/export?format=csv&year=2026&month=1`**
+**Query:** `?page=1&limit=20&year=2026&month=1&dsp=Spotify`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "report": {
+      "data": [
+        {
+          "id": "royalty-uuid",
+          "song": "Midnight Drive",
+          "type": "PERFORMANCE",
+          "grossAmount": 1250.5,
+          "currency": "USD"
+        }
+      ],
+      "meta": { "page": 1, "limit": 20, "total": 1 }
+    },
+    "analytics": {
+      "totals": { "grossAmount": 1250.5, "recordCount": 1 }
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /reports/royalties/export` — Admin
+
+**Query:** `?format=csv&year=2026&month=1&dsp=Spotify`
+
+**Response `200`** — file download (not JSON).
+
+```bash
+curl "http://localhost:3000/reports/royalties/export?format=csv&year=2026&month=1" \
+  -H "Authorization: Bearer <accessToken>" \
+  -o royalties-report.csv
+```
+
+---
+
+#### `GET /reports/statements` — Admin
+
+**Query:** `?page=1&limit=20&year=2026&month=1&status=FINALIZED`
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [
+      {
+        "id": "statement-uuid",
+        "userId": "user-uuid",
+        "periodStart": "2026-01-01T00:00:00.000Z",
+        "periodEnd": "2026-01-31T00:00:00.000Z",
+        "status": "FINALIZED",
+        "totalAmount": "1062.92",
+        "currency": "USD"
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+---
+
+#### `GET /reports/statements/export` — Admin
+
+**Query:** `?format=pdf&year=2026&month=1`
+
+**Response `200`** — file download (not JSON).
+
+```bash
+curl "http://localhost:3000/reports/statements/export?format=pdf&year=2026&month=1" \
+  -H "Authorization: Bearer <accessToken>" \
+  -o statements-report.pdf
+```
 
 ---
 
