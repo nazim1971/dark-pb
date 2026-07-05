@@ -20,6 +20,7 @@ import {
 } from "@nestjs/swagger";
 import { Response } from "express";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { Roles } from "../auth/decorators/roles.decorator";
 import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
 import { ZodValidationPipe } from "../common/validation/zod-validation.pipe";
 import { StatementsService } from "./statements.service";
@@ -45,6 +46,7 @@ export class StatementsController {
   @ApiBody({ type: GenerateStatementDto })
   @ApiOkResponse({ description: "Statement generated" })
   @UsePipes(new ZodValidationPipe(generateStatementSchema))
+  @Roles("ADMIN")
   async generate(@CurrentUser() user: AuthenticatedUser, @Body() dto: GenerateStatementDto) {
     return this.statementsService.generate(user.userId, dto);
   }
@@ -53,19 +55,21 @@ export class StatementsController {
   @ApiOperation({ summary: "List statements with filters and pagination" })
   @ApiOkResponse({ description: "Statements fetched" })
   @UsePipes(new ZodValidationPipe(statementQuerySchema))
-  async list(@Query() query: StatementQueryDto) {
-    return this.statementsService.list(query);
+  async list(@CurrentUser() user: AuthenticatedUser, @Query() query: StatementQueryDto) {
+    return this.statementsService.list(user, query);
   }
 
   @Get("export")
   @ApiOperation({ summary: "Export statements to CSV, Excel, or PDF" })
   @ApiOkResponse({ description: "Statements exported" })
   @UsePipes(new ZodValidationPipe(statementExportQuerySchema))
+  @Roles("ADMIN")
   async export(
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: StatementExportQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const artifact = await this.statementsService.export(query, query.format);
+    const artifact = await this.statementsService.export(user, query, query.format);
     response.setHeader("Content-Type", artifact.mimeType);
     response.setHeader("Content-Disposition", `attachment; filename=\"${artifact.fileName}\"`);
     return new StreamableFile(artifact.buffer);
@@ -75,8 +79,11 @@ export class StatementsController {
   @ApiOperation({ summary: "Get a statement by id" })
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "Statement fetched" })
-  async getById(@Param("id", new ParseUUIDPipe()) id: string) {
-    return this.statementsService.getById(id);
+  async getById(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id", new ParseUUIDPipe()) id: string,
+  ) {
+    return this.statementsService.getById(user, id);
   }
 
   @Get(":id/export")
@@ -85,11 +92,12 @@ export class StatementsController {
   @ApiOkResponse({ description: "Statement exported" })
   @UsePipes(new ZodValidationPipe(statementFileQuerySchema))
   async exportById(
+    @CurrentUser() user: AuthenticatedUser,
     @Param("id", new ParseUUIDPipe()) id: string,
     @Query() query: StatementFileQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const artifact = await this.statementsService.exportById(id, query.format);
+    const artifact = await this.statementsService.exportById(user, id, query.format);
     response.setHeader("Content-Type", artifact.mimeType);
     response.setHeader("Content-Disposition", `attachment; filename=\"${artifact.fileName}\"`);
     return new StreamableFile(artifact.buffer);

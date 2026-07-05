@@ -1,9 +1,23 @@
-import { Body, Controller, Get, Post, Query, Res, StreamableFile, UsePipes } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+  StreamableFile,
+  UsePipes,
+} from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiBody,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiTags,
 } from "@nestjs/swagger";
@@ -17,7 +31,12 @@ import {
   createRoyaltySchema,
   royaltyExportSchema,
   royaltyFilterSchema,
+  updateRoyaltySchema,
 } from "./schemas/royalties.zod";
+import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { Roles } from "../auth/decorators/roles.decorator";
+import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
+import { UpdateRoyaltyDto } from "./dto/update-royalty.dto";
 
 @ApiTags("Royalties")
 @ApiBearerAuth()
@@ -30,8 +49,9 @@ export class RoyaltiesController {
   @ApiBody({ type: CreateRoyaltyDto })
   @ApiOkResponse({ description: "Royalty created" })
   @UsePipes(new ZodValidationPipe(createRoyaltySchema))
-  async create(@Body() dto: CreateRoyaltyDto) {
-    return this.royaltiesService.create(dto);
+  @Roles("ADMIN")
+  async create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateRoyaltyDto) {
+    return this.royaltiesService.create(user, dto);
   }
 
   @Get()
@@ -45,16 +65,16 @@ export class RoyaltiesController {
   @ApiQuery({ name: "status", required: false, type: String })
   @ApiOkResponse({ description: "Royalties fetched" })
   @UsePipes(new ZodValidationPipe(royaltyFilterSchema))
-  async list(@Query() query: RoyaltyQueryDto) {
-    return this.royaltiesService.list(query);
+  async list(@CurrentUser() user: AuthenticatedUser, @Query() query: RoyaltyQueryDto) {
+    return this.royaltiesService.list(user, query);
   }
 
   @Get("analytics")
   @ApiOperation({ summary: "Get royalty analytics" })
   @ApiOkResponse({ description: "Royalty analytics generated" })
   @UsePipes(new ZodValidationPipe(royaltyFilterSchema))
-  async analytics(@Query() query: RoyaltyQueryDto) {
-    return this.royaltiesService.analytics(query);
+  async analytics(@CurrentUser() user: AuthenticatedUser, @Query() query: RoyaltyQueryDto) {
+    return this.royaltiesService.analytics(user, query);
   }
 
   @Get("export")
@@ -62,12 +82,51 @@ export class RoyaltiesController {
   @ApiOkResponse({ description: "Royalties exported" })
   @UsePipes(new ZodValidationPipe(royaltyExportSchema))
   async export(
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: RoyaltyExportQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const artifact = await this.royaltiesService.export(query, query.format);
+    const artifact = await this.royaltiesService.export(user, query, query.format);
     response.setHeader("Content-Type", artifact.mimeType);
     response.setHeader("Content-Disposition", `attachment; filename=\"${artifact.fileName}\"`);
     return new StreamableFile(artifact.buffer);
+  }
+
+  @Get(":id")
+  @ApiOperation({ summary: "Get royalty by id" })
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "Royalty fetched" })
+  async getById(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id", new ParseUUIDPipe()) id: string,
+  ) {
+    return this.royaltiesService.getById(user, id);
+  }
+
+  @Patch(":id")
+  @ApiOperation({ summary: "Update royalty record" })
+  @ApiParam({ name: "id", type: String })
+  @ApiBody({ type: UpdateRoyaltyDto })
+  @ApiOkResponse({ description: "Royalty updated" })
+  @Roles("ADMIN")
+  @UsePipes(new ZodValidationPipe(updateRoyaltySchema))
+  async update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateRoyaltyDto,
+  ) {
+    return this.royaltiesService.update(user, id, dto);
+  }
+
+  @Delete(":id")
+  @ApiOperation({ summary: "Soft delete royalty record" })
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "Royalty deleted" })
+  @Roles("ADMIN")
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id", new ParseUUIDPipe()) id: string,
+  ) {
+    return this.royaltiesService.remove(user, id);
   }
 }

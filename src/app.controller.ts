@@ -1,4 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import { Public } from "./auth/decorators/public.decorator";
 
 interface HomeResponse {
@@ -9,6 +10,7 @@ interface HomeResponse {
 @Controller()
 export class AppController {
   @Public()
+  @SkipThrottle()
   @Get()
   home(): HomeResponse {
     return {

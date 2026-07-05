@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationSchema } from "../../common/validation/zod-schema.patterns";
 
 const royaltyTypeSchema = z.enum([
   "PERFORMANCE",
@@ -9,7 +10,7 @@ const royaltyTypeSchema = z.enum([
 ]);
 const royaltyStatusSchema = z.enum(["PENDING", "PROCESSED", "DISPUTED", "PAID"]);
 const statementStatusSchema = z.enum(["DRAFT", "FINALIZED", "SENT", "PAID"]);
-const exportFormatSchema = z.enum(["csv", "excel", "pdf"]);
+const exportFormatSchema = z.enum(["csv", "excel", "pdf", "cwr"]);
 
 export const generateStatementSchema = z
   .object({
@@ -30,9 +31,7 @@ export const generateStatementSchema = z
     path: ["periodEnd"],
   });
 
-export const statementQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+export const statementQuerySchema = paginationSchema.extend({
   userId: z.string().uuid().optional(),
   companyId: z.string().uuid().optional(),
   song: z.string().trim().max(200).optional(),

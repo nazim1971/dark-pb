@@ -2,11 +2,52 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { KycStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
+import { buildPaginatedDataResponse } from "../common/helpers/response.helper";
+import { buildPagination } from "../prisma/query-helpers";
 import { KycPendingQueryDto } from "./dto/kyc-pending-query.dto";
+import { SubmitKycDto } from "./dto/submit-kyc.dto";
 
 @Injectable()
 export class KycService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async submitKyc(userId: string, dto: SubmitKycDto) {
+    const existing = await this.prisma.kYC.findFirst({
+      where: { userId, deletedAt: null },
+      select: {
+        id: true,
+        companyId: true,
+      },
+    });
+
+    if (!existing) {
+      return this.prisma.kYC.create({
+        data: {
+          userId,
+          documentType: dto.documentType.trim(),
+          documentNumber: dto.documentNumber?.trim(),
+          country: dto.country?.trim(),
+          notes: dto.notes?.trim(),
+          status: KycStatus.PENDING,
+          submittedAt: new Date(),
+        },
+      });
+    }
+
+    return this.prisma.kYC.update({
+      where: { id: existing.id },
+      data: {
+        documentType: dto.documentType.trim(),
+        documentNumber: dto.documentNumber?.trim(),
+        country: dto.country?.trim(),
+        notes: dto.notes?.trim(),
+        status: KycStatus.PENDING,
+        submittedAt: new Date(),
+        reviewedAt: null,
+        reviewedById: null,
+      },
+    });
+  }
 
   async getMyStatus(userId: string) {
     const kyc = await this.prisma.kYC.findFirst({
@@ -31,12 +72,11 @@ export class KycService {
   }
 
   async listPending(adminUser: AuthenticatedUser, query: KycPendingQueryDto) {
+    const pagination = buildPagination(query);
     const where: Prisma.KYCWhereInput = {
       status: KycStatus.PENDING,
       deletedAt: null,
     };
-
-    const skip = (query.page - 1) * query.limit;
 
     const [data, total] = await Promise.all([
       this.prisma.kYC.findMany({
@@ -67,20 +107,15 @@ export class KycService {
           },
         },
         orderBy: [{ submittedAt: "asc" }],
-        skip,
-        take: query.limit,
+        skip: pagination.skip,
+        take: pagination.take,
       }),
       this.prisma.kYC.count({ where }),
     ]);
 
     return {
       requestedBy: adminUser.userId,
-      data,
-      meta: {
-        page: query.page,
-        limit: query.limit,
-        total,
-      },
+      ...buildPaginatedDataResponse(data, pagination.page, pagination.limit, total),
     };
   }
 
@@ -88,7 +123,7 @@ export class KycService {
     const kyc = await this.prisma.kYC.findFirst({
       where: {
         userId,
-        status: KycStatus.APPROVED,
+        status: KycStatus.VERIFIED,
         deletedAt: null,
       },
       select: { id: true },

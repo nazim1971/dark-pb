@@ -1,1230 +1,625 @@
-# Dark Lab Records Publishing Portal Server - Complete Backend Guideline
+# Dark Lab Records — Music Publishing API
 
-**NestJS backend for a Music Publishing Administration Portal.**
+NestJS backend for the **Music Publishing Administration Platform**.
 
-This guide explains:
-- Project architecture and folder structure
-- Setup and run steps
-- Environment configuration
-- Prisma workflow
-- Auth and role model
-- Full API list with request examples
-- How to test endpoints properly (what data to pass)
+- **Framework:** NestJS 10 + TypeScript  
+- **Database:** PostgreSQL via Prisma  
+- **Auth:** JWT access token + HTTP-only refresh cookie  
+- **Validation:** Zod (runtime) + class-validator (Swagger DTOs)  
+- **Docs:** Swagger UI at `/docs`
 
 ---
 
-## Table of Contents
-
-1. [Project Overview](#1-project-overview)
-2. [Architecture Highlights](#2-architecture-highlights)
-3. [Folder Structure](#3-folder-structure-module-oriented)
-4. [Environment Configuration](#4-environment-configuration)
-5. [Install, Build, Run](#5-install-build-run)
-6. [Authentication and Authorization](#6-authentication-and-authorization)
-7. [Swagger and Quick API Exploration](#7-swagger-and-quick-api-exploration)
-8. [Core Enums and Domain Values](#8-core-enums-and-domain-values)
-9. [Testing Workflow](#9-testing-workflow-recommended)
-10. [API Reference With Examples](#10-api-reference-with-examples)
-11. [Export Formats and Testing](#11-export-formats-and-testing)
-12. [Audit Logging and Activity Tracking](#12-audit-logging-and-activity-tracking)
-13. [Notes on Current Module Status](#13-notes-on-current-module-status)
-14. [Postman Collection Tips](#14-postman-collection-tips)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Production Readiness Checklist](#16-production-readiness-checklist)
-
----
-
-## 1) Project Overview
-
-- **Framework:** NestJS 10
-- **Language:** TypeScript
-- **ORM:** Prisma
-- **Database:** PostgreSQL
-- **Auth:** JWT access token + refresh flow
-- **Validation:** class-validator + Zod
-- **Docs:** Swagger at `/docs`
-- **Exports:** CSV, Excel, PDF, CWR
-
-**Core entry points:**
-- [src/main.ts](src/main.ts)
-- [src/app.module.ts](src/app.module.ts)
-- [src/app.controller.ts](src/app.controller.ts)
-
----
-
-## 2) Architecture Highlights
-
-- Global request validation with ValidationPipe
-- Global response shaping interceptor
-- Global exception filter
-- Global throttling (rate limit)
-- Global JWT guard and role guard
-- Module-driven architecture by business domain
-- Prisma service abstraction in dedicated module
-
-**Relevant files:**
-- [src/common/filters/all-exceptions.filter.ts](src/common/filters/all-exceptions.filter.ts)
-- [src/common/interceptors/response.interceptor.ts](src/common/interceptors/response.interceptor.ts)
-- [src/common/validation/zod-validation.pipe.ts](src/common/validation/zod-validation.pipe.ts)
-- [src/auth/guards/jwt-auth.guard.ts](src/auth/guards/jwt-auth.guard.ts)
-- [src/auth/guards/roles.guard.ts](src/auth/guards/roles.guard.ts)
-- [src/prisma/prisma.service.ts](src/prisma/prisma.service.ts)
-
----
-
-## 3) Folder Structure (Module-Oriented)
-
-### Top-Level Directories
-
-```
-|-- src/
-|-- prisma/
-`-- dist/
-```
-
-### Backend Source Modules
-
-```
-src/
-|-- admin/
-|-- auth/
-|-- common/
-|-- compositions/
-|-- conflicts/
-|-- contracts/
-|-- kyc/
-|-- notifications/
-|-- prisma/
-|-- publishers/
-|-- recordings/
-|-- reports/
-|-- royalties/
-|-- search/
-|-- shared/
-|-- statements/
-|-- support/
-|-- users/
-`-- writers/
-```
-
-### Important Module Internals
-
-- Each domain generally has controller, service, module, dto, schemas, interfaces
-- Shared pagination DTO: [src/shared/dto/pagination-query.dto.ts](src/shared/dto/pagination-query.dto.ts)
-- Export helpers:
-  - [src/reports/export.utils.ts](src/reports/export.utils.ts)
-  - [src/admin/admin-export.utils.ts](src/admin/admin-export.utils.ts)
-
-### Database Assets
-
-- [prisma/schema.prisma](prisma/schema.prisma)
-- [prisma/seed.ts](prisma/seed.ts)
-- [prisma/README.md](prisma/README.md)
-
----
-
-## 4) Environment Configuration
-
-**Environment template:** [.env.example](.env.example)
-
-Copy values into `.env` and fill real secrets.
-
-### Required Keys
-
-| Key | Description |
-|-----|-------------|
-| `NODE_ENV` | Environment (development/production) |
-| `PORT` | Server port |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `DIRECT_URL` | Direct PostgreSQL connection string for Prisma migrate |
-| `ALLOWED_ORIGINS` | Comma-separated frontend origins |
-| `JWT_ACCESS_SECRET` | JWT access token secret |
-| `JWT_REFRESH_SECRET` | JWT refresh token secret |
-| `JWT_ACCESS_EXPIRATION` | Access token expiry (e.g., 15m) |
-| `JWT_REFRESH_EXPIRATION` | Refresh token expiry (e.g., 7d) |
-| `BCRYPT_ROUNDS` | Salt rounds for bcrypt |
-| `PASSWORD_RESET_TOKEN_EXP_MINUTES` | Reset token expiry in minutes |
-| `EMAIL_VERIFICATION_TOKEN_EXP_HOURS` | Email verification token expiry in hours |
-| `COOKIE_SECRET` | Cookie encryption secret |
-| `PRISMA_LOG_QUERIES` | Enable query logging (true/false) |
-| `SEED_ADMIN_EMAIL` | Admin email for seeding |
-| `SEED_ADMIN_PASSWORD` | Admin password for seeding |
-| `SEED_ADMIN_FIRST_NAME` | Admin first name |
-| `SEED_ADMIN_LAST_NAME` | Admin last name |
-
----
-
-## 5) Install, Build, Run
-
-**Scripts are defined in [package.json](package.json).**
-
-### Install Dependencies
+## Quick start
 
 ```bash
+cd Server
+cp .env.example .env
+# Edit .env with your database URL, JWT secrets, and support contact details
+
 npm install
+npx prisma migrate deploy
+npx prisma generate
+npm run seed        # optional
+npm run dev         # http://localhost:3000
 ```
 
-### Generate Prisma Client
-
-```bash
-npm run prisma:generate
-```
-
-### Apply Migrations (Development)
-
-```bash
-npm run prisma:migrate
-```
-
-### Seed Data
-
-```bash
-npm run prisma:seed
-```
-
-### Start Dev Server
-
-```bash
-npm run dev
-```
-
-### Build
-
-```bash
-npm run build
-```
-
-### Run Production Build
-
-```bash
-npm run start:prod
-```
-
-### Full DB Setup Shortcut
-
-```bash
-npm run db:setup
-```
+Swagger: `http://localhost:3000/docs`
 
 ---
 
-## 6) Authentication and Authorization
+## Environment variables
 
-**Auth Module:**
-- [src/auth/auth.controller.ts](src/auth/auth.controller.ts)
-- [src/auth/auth.service.ts](src/auth/auth.service.ts)
-- [src/auth/auth.module.ts](src/auth/auth.module.ts)
-
-**Decorators:**
-- Role decorator: [src/auth/decorators/roles.decorator.ts](src/auth/decorators/roles.decorator.ts)
-- Current user decorator: [src/auth/decorators/current-user.decorator.ts](src/auth/decorators/current-user.decorator.ts)
-- Public endpoint decorator: [src/auth/decorators/public.decorator.ts](src/auth/decorators/public.decorator.ts)
-- Skip KYC check decorator: [src/auth/decorators/skip-kyc-check.decorator.ts](src/auth/decorators/skip-kyc-check.decorator.ts)
-
-### How It Works
-
-- JWT guard is global
-- Roles guard is global
-- KYC action guard is global for non-admin write routes
-- Endpoints marked `@Public()` bypass auth
-- Endpoints marked `@SkipKycCheck()` bypass KYC action guard
-- Admin routes require role `ADMIN`
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection URL |
+| `DIRECT_URL` | Yes | Direct DB URL (migrations) |
+| `JWT_ACCESS_SECRET` | Yes | Min 32 characters |
+| `JWT_REFRESH_SECRET` | Yes | Min 32 characters |
+| `JWT_ACCESS_EXPIRATION` | Yes | e.g. `15m` |
+| `JWT_REFRESH_EXPIRATION` | Yes | e.g. `7d` |
+| `COOKIE_SECRET` | Yes | Min 32 characters |
+| `SUPPORT_EMAIL` | Yes | Support email shown to users |
+| `SUPPORT_WHATSAPP` | Yes | WhatsApp number (e.g. `+447700900123`) |
+| `PORT` | No | Default `3000` |
+| `CORS_ORIGINS` | No | Comma-separated origins |
+| `REQUEST_BODY_LIMIT` | No | Default `1mb` |
 
 ---
 
-## 7) Swagger and Quick API Exploration
+## Authentication
 
-**Swagger Configuration:**
-- [src/common/utils/swagger.ts](src/common/utils/swagger.ts)
+All routes except `@Public()` endpoints require:
 
-After running server:
-
-```
-http://localhost:3000/docs
+```http
+Authorization: Bearer <access_token>
 ```
 
-Use Swagger for interactive testing first, then use cURL/Postman for scripted tests.
+Refresh token is stored in a signed HTTP-only cookie on `/auth` routes.
+
+### Roles
+
+`SONGWRITER` · `PUBLISHER` · `RECORD_LABEL` · `ADMIN`  
+(Also `COMPOSER` / `ARTIST` in schema for legacy accounts.)
+
+### KYC gate
+
+Users must have **VERIFIED** KYC before creating/updating songs, writers, royalties, etc.  
+`GET` requests and auth/KYC/profile routes are exempt.
 
 ---
 
-## 8) Core Enums and Domain Values
+## Response format
 
-**Prisma Schema:** [prisma/schema.prisma](prisma/schema.prisma)
+### Success
 
-### Common Enum Values
-
-#### Role
-- `SONGWRITER`
-- `COMPOSER`
-- `ARTIST`
-- `PUBLISHER`
-- `RECORD_LABEL`
-- `ADMIN`
-
-#### PublishingStatus
-- `DRAFT`
-- `SUBMITTED`
-- `UNDER_REVIEW`
-- `PUBLISHED`
-- `REJECTED`
-
-#### RoyaltyType
-- `PERFORMANCE`
-- `MECHANICAL`
-- `LYRICS`
-- `SYNCHRONIZATION`
-- `OTHER`
-
-#### ContractType
-- `PUBLISHING_AGREEMENT`
-- `SPLIT_SHEET`
-- `ADMINISTRATION_AGREEMENT`
-
-#### ConflictStatus
-- `OPEN`
-- `UNDER_REVIEW`
-- `RESOLVED`
-- `REJECTED`
-
-#### TicketCategory
-- `ACCOUNT`
-- `KYC`
-- `COMPOSITION`
-- `ROYALTY`
-- `CONTRACT`
-- `TECHNICAL`
-- `OTHER`
-
-#### TicketPriority
-- `LOW`
-- `MEDIUM`
-- `HIGH`
-- `URGENT`
-
-#### TicketStatus
-- `OPEN`
-- `IN_PROGRESS`
-- `WAITING_FOR_USER`
-- `RESOLVED`
-- `CLOSED`
-
----
-
-## 9) Testing Workflow (Recommended)
-
-1. Register a user
-2. Login and store access token
-3. Use Authorization header on protected routes
-4. Create sample composition
-5. Add royalties
-6. Generate statements
-7. Test contracts/conflicts/support
-8. Use admin account for admin/report/export routes
-
-### Authorization Header Format
-
-```
-Authorization: Bearer YOUR_ACCESS_TOKEN
-```
-
-**Base URL used in examples:** `http://localhost:3000`
-
----
-
-## 10) API Reference With Examples
-
-> **Note:**
-> - UUID path params must be valid UUID strings
-> - Date values should be ISO format where applicable
-> - Query pagination defaults generally are `page=1` and `limit=20`
-
----
-
-### 10.1 Health
-
-**GET /** 
-- **Auth:** Public
-- **Purpose:** Service health response
-
-```bash
-curl -X GET http://localhost:3000/
-```
-
----
-
-### 10.2 Auth APIs
-
-**Controller:** [src/auth/auth.controller.ts](src/auth/auth.controller.ts)
-
-#### POST /auth/register
-- **Auth:** Public
-
-**Body Example INDIVIDUAL :**
 ```json
 {
-  "legalName": "Araf Writer",
-  "stageName": "Araf",
-  "country": "Bangladesh",
-  "phone": "+8801XXXXXXXXX",
-  "spotifyArtistLink": "https://open.spotify.com/artist/abc",
-  "pro": "BMI",
-  "ipiNumber": "123456789",
-  "email": "writer1@example.com",
-  "password": "StrongPass123!",
-  "role": "SONGWRITER",
-  "registrationType": "INDIVIDUAL"
+  "success": true,
+  "message": "Request completed successfully",
+  "data": { },
+  "timestamp": "2026-07-05T15:00:00.000Z"
 }
 ```
 
-**Body Example COMPANY :**
+### Paginated list
+
 ```json
 {
-  "legalName": "Pom Writer",
-  "stageName": "Pom",
-  "country": "Bangladesh",
-  "phone": "+8801XXXXXXXXX",
-  "spotifyArtistLink": "https://open.spotify.com/artist/abc",
-  "pro": "BMI",
-  "ipiNumber": "123456789",
-  "email": "pom@gmail.com",
-  "password": "Abcd123!",
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "items": [],
+    "meta": { "page": 1, "limit": 20, "total": 0, "totalPages": 1 }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
+}
+```
+
+Some admin/royalty endpoints use `"data"` instead of `"items"` — same `meta` shape.
+
+### Error
+
+```json
+{
+  "statusCode": 400,
+  "code": "VALIDATION_ERROR",
+  "message": "Validation failed",
+  "error": "Bad Request",
+  "timestamp": "2026-07-05T15:00:00.000Z",
+  "path": "/songs",
+  "requestId": "uuid",
+  "details": [{ "path": "writers", "message": "Total split percentage must equal exactly 100%", "code": "custom" }]
+}
+```
+
+---
+
+## API reference
+
+Base URL: `http://localhost:3000`
+
+Legend: **Public** = no token · **Auth** = any logged-in user · **Admin** = `ADMIN` role
+
+---
+
+### Health
+
+#### `GET /` — Public
+
+```json
+{
+  "success": true,
+  "message": "Dark Lab Records API Running"
+}
+```
+
+---
+
+### Auth (`/auth`)
+
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| POST | `/auth/register` | Public | Register account |
+| POST | `/auth/login` | Public | Login |
+| POST | `/auth/refresh` | Public | Refresh access token (cookie) |
+| POST | `/auth/logout` | Public | Logout |
+| POST | `/auth/forgot-password` | Public | Request reset token |
+| POST | `/auth/reset-password` | Public | Reset password |
+| POST | `/auth/send-verification-email` | Auth | Send verification email |
+| POST | `/auth/verify-email` | Public | Verify email token |
+
+**POST `/auth/register` — Songwriter (individual)**
+
+```json
+{
+  "email": "writer@example.com",
+  "password": "SecurePass123!",
   "role": "SONGWRITER",
+  "registrationType": "INDIVIDUAL",
+  "legalFirstName": "Jane",
+  "legalLastName": "Doe",
+  "stageName": "JD",
+  "country": "GB",
+  "phone": "+447700900000",
+  "dateOfBirth": "1990-05-15",
+  "pro": "PRS",
+  "ipiNumber": "00123456789"
+}
+```
+
+**POST `/auth/register` — Publisher (company)**
+
+```json
+{
+  "email": "admin@publisher.com",
+  "password": "SecurePass123!",
+  "role": "PUBLISHER",
   "registrationType": "COMPANY",
-  "companyName": "Tom Music Publishing",
-  "companyNumber": "C-2026-001",
-  "address": "Dhaka, Bangladesh",
-  "director": "Pom Director"
+  "companyLegalName": "Acme Publishing Ltd",
+  "representativeName": "John Smith",
+  "country": "GB",
+  "registrationNumber": "12345678",
+  "vatNumber": "GB123456789",
+  "website": "https://acmepublishing.com",
+  "phone": "+447700900001",
+  "address": "10 Music Street, London"
 }
 ```
 
-```bash
-curl -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"writer1@example.com","password":"StrongPass123!","legalName":"Araf Writer","role":"SONGWRITER","registrationType":"INDIVIDUAL"}'
-```
+**POST `/auth/login`**
 
-#### POST /auth/login
-- **Auth:** Public
-
-**Body Example:**
 ```json
 {
-  "email": "writer1@example.com",
-  "password": "StrongPass123!"
+  "email": "writer@example.com",
+  "password": "SecurePass123!"
 }
 ```
 
-#### POST /auth/refresh
-- **Auth:** Protected by refresh cookie/session flow
-- **Body:** none
+**Response (register / login / refresh)**
 
-#### POST /auth/logout
-- **Auth:** Public endpoint, clears refresh token context
-
-#### POST /auth/forgot-password
-- **Auth:** Public
-
-**Body Example:**
 ```json
 {
-  "email": "writer1@example.com"
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "tokenType": "Bearer",
+    "expiresIn": "15m",
+    "user": {
+      "id": "uuid",
+      "email": "writer@example.com",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "role": "SONGWRITER",
+      "status": "ACTIVE",
+      "kycStatus": "PENDING"
+    }
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
 }
 ```
 
-#### POST /auth/reset-password
-- **Auth:** Public
+**POST `/auth/forgot-password`**
 
-**Body Example:**
+```json
+{ "email": "writer@example.com" }
+```
+
+**POST `/auth/reset-password`**
+
 ```json
 {
   "token": "reset-token-from-email",
-  "newPassword": "NewStrongPass123!"
-}
-```
-
-#### POST /auth/send-verification-email
-- **Auth:** JWT required
-- **Body:** none
-
-#### POST /auth/verify-email
-- **Auth:** Public
-
-**Body Example:**
-```json
-{
-  "token": "verify-token-from-email"
+  "password": "NewSecurePass123!"
 }
 ```
 
 ---
 
-### 10.3 Users API
+### Users (`/users`) — Auth
 
-**Controller:** [src/users/users.controller.ts](src/users/users.controller.ts)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/users/me` | Current profile |
+| GET | `/users/me/account-settings` | Account settings |
+| PATCH | `/users/me/profile` | Update profile |
+| PATCH | `/users/me/account-settings` | Update settings |
+| PATCH | `/users/me/change-password` | Change password |
+| PATCH | `/users/:id/status` | Admin: suspend/activate |
 
-#### GET /users/me
-- **Auth:** JWT required
-- **Body:** none
+**PATCH `/users/me/profile`**
 
-```bash
-curl -X GET http://localhost:3000/users/me \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
-```
-
----
-
-### 10.4 KYC APIs
-
-**Controller:** [src/kyc/kyc.controller.ts](src/kyc/kyc.controller.ts)
-
-#### GET /kyc/me
-- **Auth:** JWT required
-
-#### GET /kyc/pending
-- **Auth:** ADMIN
-
-**Query Example:**
-```
-/kyc/pending?page=1&limit=20
-```
-
----
-
-### 10.5 Compositions APIs
-
-**Controller:** [src/compositions/compositions.controller.ts](src/compositions/compositions.controller.ts)
-
-#### POST /compositions
-- **Auth:** JWT required
-
-**Body Example:**
 ```json
 {
-  "songTitle": "Midnight Rain",
-  "alternativeTitle": "MR Demo",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "stageName": "JD",
+  "country": "GB",
+  "phone": "+447700900000",
+  "pro": "PRS",
+  "ipiNumber": "00123456789"
+}
+```
+
+**PATCH `/users/me/change-password`**
+
+```json
+{
+  "currentPassword": "SecurePass123!",
+  "newPassword": "NewSecurePass456!"
+}
+```
+
+---
+
+### KYC (`/kyc`) — Auth
+
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| POST | `/kyc/submit` | Auth | Submit KYC |
+| GET | `/kyc/me` | Auth | My KYC status |
+| GET | `/kyc/pending` | Admin | List pending KYC |
+
+**POST `/kyc/submit`**
+
+```json
+{
+  "documentType": "PASSPORT",
+  "documentNumber": "AB1234567",
+  "country": "GB",
+  "notes": "First submission"
+}
+```
+
+---
+
+### Writers (`/writers`) — Auth + KYC
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/writers` | Create writer |
+| GET | `/writers` | List (paginated) |
+| GET | `/writers/:id` | Get by ID |
+| PATCH | `/writers/:id` | Update |
+| DELETE | `/writers/:id` | Soft delete |
+
+**POST `/writers`**
+
+```json
+{
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "pro": "PRS",
+  "ipiNumber": "00123456789",
+  "dob": "1990-05-15"
+}
+```
+
+**GET `/writers?page=1&limit=20&q=jane`**
+
+---
+
+### Songs (`/songs`) — Auth + KYC
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/songs` | Register song |
+| GET | `/songs` | List (paginated) |
+| GET | `/songs/:id` | Get by ID |
+| PATCH | `/songs/:id` | Update |
+| DELETE | `/songs/:id` | Soft delete |
+
+**POST `/songs`**
+
+```json
+{
+  "released": true,
+  "spotifyUrl": "https://open.spotify.com/track/abc123",
+  "songTitle": "Midnight Drive",
+  "alternativeTitle": "Midnight",
+  "artistName": "JD",
   "language": "English",
-  "genre": "Pop",
-  "lyrics": "Sample lyrics here",
-  "spotifyUrl": "https://open.spotify.com/track/abc",
-  "youtubeUrl": "https://youtube.com/watch?v=123",
-  "isrc": "USRC17607839",
-  "releaseDate": "2026-06-01",
-  "version": "1.0",
-  "status": "DRAFT"
-}
-```
-
-#### PATCH /compositions/:id
-- **Auth:** JWT required
-- **Body:** any editable subset from create payload
-
-#### POST /compositions/:id/submit
-- **Auth:** JWT required
-
-**Body Example:**
-```json
-{
-  "note": "Ready for review"
-}
-```
-
-#### POST /compositions/:id/draft
-- **Auth:** JWT required
-- **Body:** none
-
-#### POST /compositions/:id/approve
-- **Auth:** ADMIN
-
-**Body Example:**
-```json
-{
-  "note": "Approved by admin"
-}
-```
-
-#### POST /compositions/:id/reject
-- **Auth:** ADMIN
-
-**Body Example:**
-```json
-{
-  "note": "Need metadata correction"
-}
-```
-
-#### GET /compositions/:id
-- **Auth:** JWT required
-
-#### PATCH /compositions/:id/relations
-- **Auth:** JWT required
-
-**Body Example:**
-```json
-{
+  "isrc": "GBUM71234567",
+  "duration": 210,
+  "lyrics": "Verse 1...",
+  "releaseDate": "2025-06-01",
+  "status": "SUBMITTED",
   "writers": [
-    {
-      "legalName": "John Doe",
-      "stageName": "JD",
-      "ipiNumber": "123456789",
-      "pro": "ASCAP",
-      "role": "COMPOSER",
-      "writerShare": 50,
-      "country": "US"
-    }
-  ],
-  "recordings": [
-    {
-      "isrc": "USRC17607839",
-      "artist": "Artist Name",
-      "spotifyLink": "https://open.spotify.com/track/abc",
-      "duration": 210,
-      "release": "2026-06-01",
-      "version": "Original",
-      "label": "Dark Lab"
-    }
-  ],
-  "publishers": [
-    {
-      "publisherName": "Global Publishing",
-      "ipi": "9988776655",
-      "territory": "Worldwide",
-      "share": 50
-    }
+    { "writerId": "writer-uuid-1", "splitPercentage": 60 },
+    { "writerId": "writer-uuid-2", "splitPercentage": 40 }
   ]
 }
 ```
 
-#### GET /compositions
-- **Auth:** JWT required
+> Writer splits must total **exactly 100%**.  
+> `spotifyUrl` is required when `released` is `true`.
 
-**Query Example:**
-```
-/compositions?page=1&limit=20&songTitle=Midnight&status=DRAFT
-```
+**GET `/songs?page=1&limit=20&q=midnight&status=SUBMITTED`**
 
 ---
 
-### 10.6 Contracts APIs
+### Royalties (`/royalties`) — Auth
 
-**Controller:** [src/contracts/contracts.controller.ts](src/contracts/contracts.controller.ts)
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| POST | `/royalties` | Admin | Create royalty |
+| GET | `/royalties` | Auth | List (scoped to owner unless admin) |
+| GET | `/royalties/analytics` | Auth | Analytics |
+| GET | `/royalties/export` | Auth | Export CSV/Excel/PDF |
+| GET | `/royalties/:id` | Auth | Get by ID |
+| PATCH | `/royalties/:id` | Admin | Update |
+| DELETE | `/royalties/:id` | Admin | Soft delete |
 
-#### POST /contracts
-- **Auth:** JWT required
+**POST `/royalties`** (Admin)
 
-**Body Example:**
 ```json
 {
-  "contractNo": "CNT-2026-0001",
-  "title": "Publishing Deal 2026",
-  "type": "PUBLISHING_AGREEMENT",
-  "status": "DRAFT",
-  "effectiveFrom": "2026-01-01T00:00:00.000Z"
-}
-```
-
-#### PATCH /contracts/:id
-- **Auth:** JWT required
-- **Body:** any editable contract fields
-
-#### POST /contracts/:id/approve
-- **Auth:** ADMIN
-
-**Body Example:**
-```json
-{
-  "note": "Contract approved"
-}
-```
-
-#### PATCH /contracts/:id/compositions
-- **Auth:** JWT required
-
-**Body Example:**
-```json
-{
-  "compositions": [
-    {
-      "compositionId": "11111111-1111-1111-1111-111111111111",
-      "territory": "Worldwide",
-      "sharePercentage": 50
-    }
-  ]
-}
-```
-
-#### GET /contracts/:id
-- **Auth:** JWT required
-
-#### GET /contracts
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/contracts?page=1&limit=20&type=PUBLISHING_AGREEMENT&status=DRAFT
-```
-
----
-
-### 10.7 Royalties APIs
-
-**Controller:** [src/royalties/royalties.controller.ts](src/royalties/royalties.controller.ts)
-
-#### POST /royalties
-- **Auth:** JWT required
-
-**Body Example:**
-```json
-{
-  "compositionId": "11111111-1111-1111-1111-111111111111",
+  "compositionId": "song-uuid",
+  "writerId": "writer-uuid",
   "type": "PERFORMANCE",
-  "sourceDsp": "Spotify",
-  "country": "US",
-  "periodYear": 2026,
-  "periodMonth": 6,
-  "amount": 1250.5,
+  "dsp": "Spotify",
+  "country": "GB",
+  "royaltyDate": "2026-01-15",
+  "totalViews": 150000,
+  "grossAmount": 1250.5,
   "currency": "USD",
-  "sharePercentage": 50
+  "adminSharePercentage": 15
 }
 ```
 
-#### GET /royalties
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/royalties?page=1&limit=20&year=2026&month=6&dsp=Spotify&type=PERFORMANCE
-```
-
-#### GET /royalties/analytics
-- **Auth:** JWT required
-- **Query:** same filter family as list endpoint
-
-#### GET /royalties/export
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/royalties/export?format=csv&year=2026&month=6
-```
-
-**Allowed format values:**
-- `csv`
-- `excel`
-- `pdf`
+**GET `/royalties?year=2026&month=1&dsp=Spotify&page=1&limit=20`**
 
 ---
 
-### 10.8 Statements APIs
+### Statements (`/statements`) — Auth
 
-**Controller:** [src/statements/statements.controller.ts](src/statements/statements.controller.ts)
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| POST | `/statements/generate` | Admin | Generate statement |
+| GET | `/statements` | Auth | List |
+| GET | `/statements/export` | Admin | Bulk export |
+| GET | `/statements/:id` | Auth | Get by ID |
+| GET | `/statements/:id/export` | Auth | Download PDF/CSV/CWR |
 
-#### POST /statements/generate
-- **Auth:** JWT required
+**POST `/statements/generate`** (Admin)
 
-**Body Example:**
 ```json
 {
-  "periodStart": "2026-06-01T00:00:00.000Z",
-  "periodEnd": "2026-06-30T23:59:59.999Z",
-  "currency": "USD",
-  "country": "US",
-  "dsp": "Spotify"
+  "periodStart": "2026-01-01",
+  "periodEnd": "2026-01-31",
+  "userId": "user-uuid",
+  "currency": "USD"
 }
 ```
 
-#### GET /statements
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/statements?page=1&limit=20&year=2026&month=6
-```
-
-#### GET /statements/export
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/statements/export?format=excel&year=2026
-```
-
-#### GET /statements/:id
-- **Auth:** JWT required
-
-#### GET /statements/:id/export
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/statements/11111111-1111-1111-1111-111111111111/export?format=pdf
-```
-
-**Allowed export format values:**
-- `csv`
-- `excel`
-- `pdf`
+**GET `/statements/:id/export?format=pdf`**
 
 ---
 
-### 10.9 Conflicts APIs
+### Notifications (`/notifications`) — Auth
 
-**Controller:** [src/conflicts/conflicts.controller.ts](src/conflicts/conflicts.controller.ts)
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| POST | `/notifications` | Admin | Create notification |
+| GET | `/notifications` | Auth | List my notifications |
+| PATCH | `/notifications/:id/read` | Auth | Mark as read |
+| PATCH | `/notifications/read-all` | Auth | Mark all read |
 
-#### POST /conflicts
-- **Auth:** JWT required
+**POST `/notifications`** (Admin)
 
-**Body Example:**
 ```json
 {
-  "compositionId": "11111111-1111-1111-1111-111111111111",
-  "conflictReason": "Share mismatch with external claim",
-  "currentClaim": 60,
-  "ourClaim": 50,
-  "status": "OPEN"
-}
-```
-
-#### POST /conflicts/detect
-- **Auth:** JWT required
-- **Body:** claim comparison payload for auto-detection
-
-#### GET /conflicts
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/conflicts?page=1&limit=20&status=OPEN
-```
-
-#### GET /conflicts/:id
-- **Auth:** JWT required
-
-#### GET /conflicts/:id/timeline
-- **Auth:** JWT required
-
-#### PATCH /conflicts/:id
-- **Auth:** JWT required
-- **Body:** editable conflict fields (reason/claims/status)
-
-#### PATCH /conflicts/:id/review
-- **Auth:** ADMIN
-
-**Body Example:**
-```json
-{
-  "note": "Moved to review"
-}
-```
-
-#### PATCH /conflicts/:id/resolve
-- **Auth:** ADMIN
-
-**Body Example:**
-```json
-{
-  "status": "RESOLVED",
-  "note": "Accepted and settled"
+  "userId": "user-uuid",
+  "category": "ANNOUNCEMENT",
+  "title": "Platform maintenance",
+  "message": "Scheduled maintenance on Sunday 2am UTC."
 }
 ```
 
 ---
 
-### 10.10 Support Ticket APIs
+### Support (`/support`)
 
-**Controller:** [src/support/support.controller.ts](src/support/support.controller.ts)
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| GET | `/support/contact` | Public | Email & WhatsApp contact info |
 
-#### POST /support/tickets
-- **Auth:** JWT required
+**GET `/support/contact`**
 
-**Body Example:**
 ```json
 {
-  "subject": "Statement mismatch",
-  "message": "June statement total does not match royalty report",
-  "category": "ROYALTY",
-  "priority": "HIGH"
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "email": "support@darklabrecords.com",
+    "whatsapp": "+447700900123",
+    "whatsappUrl": "https://wa.me/447700900123",
+    "message": "Contact our support team by email or WhatsApp."
+  },
+  "timestamp": "2026-07-05T15:00:00.000Z"
 }
-```
-
-#### GET /support/tickets
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/support/tickets?page=1&limit=20&status=OPEN&priority=HIGH
-```
-
-#### GET /support/tickets/:id
-- **Auth:** JWT required
-
-#### POST /support/tickets/:id/replies
-- **Auth:** JWT required
-
-**Body Example:**
-```json
-{
-  "message": "Please check statement ID ST-2026-0003"
-}
-```
-
-#### PATCH /support/tickets/:id/status
-- **Auth:** JWT required
-
-**Body Example:**
-```json
-{
-  "status": "IN_PROGRESS",
-  "note": "Investigating the issue"
-}
-```
-
-#### GET /support/tickets/:id/history
-- **Auth:** JWT required
-
----
-
-### 10.11 Reports APIs
-
-**Controller:** [src/reports/reports.controller.ts](src/reports/reports.controller.ts)
-
-#### GET /reports/royalties
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/reports/royalties?year=2026&month=6&country=US
-```
-
-#### GET /reports/royalties/export
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/reports/royalties/export?format=pdf&year=2026
-```
-
-#### GET /reports/statements
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/reports/statements?year=2026&month=6
-```
-
-#### GET /reports/statements/export
-- **Auth:** JWT required
-
-**Query Example:**
-```
-/reports/statements/export?format=csv&year=2026
 ```
 
 ---
 
-### 10.12 Search API
+### Search (`/search`) — Auth
 
-**Controller:** [src/search/search.controller.ts](src/search/search.controller.ts)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/search` | Global search |
 
-#### GET /search
-- **Auth:** JWT required
+**GET `/search?q=midnight&types=song,writer&page=1&limit=20`**
 
-**Query Example:**
-```
-/search?q=Midnight&types=composition&types=writer&sortBy=relevance&sortDirection=desc&page=1&limit=20
-```
-
-**Other searchable query fields:**
-- `song`
-- `writer`
-- `publisher`
-- `artist`
-- `isrc`
-- `iswc`
-- `ipi`
-- `spotifyUrl`
+- **Users:** songs, writers  
+- **Admin:** also users, publishers (user accounts), record labels
 
 ---
 
-### 10.13 Admin APIs
+### Admin (`/admin`) — Admin only
 
-**Controller:** [src/admin/admin.controller.ts](src/admin/admin.controller.ts)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/dashboard/stats` | Dashboard counts |
+| GET | `/admin/dashboard/analytics` | Time-series analytics |
+| GET | `/admin/users` | List users |
+| PATCH | `/admin/users/:id/activate` | Activate user |
+| PATCH | `/admin/users/:id/suspend` | Suspend user |
+| GET | `/admin/kyc` | List KYC records |
+| PATCH | `/admin/kyc/:id/approve` | Approve KYC |
+| PATCH | `/admin/kyc/:id/verify` | Verify KYC (alias) |
+| PATCH | `/admin/kyc/:id/reject` | Reject KYC |
+| GET | `/admin/songs` | List all songs |
+| PATCH | `/admin/songs/:id/status` | Update song status |
+| PATCH | `/admin/songs/:id/metadata` | Edit song metadata |
+| PATCH | `/admin/songs/:id/iswc` | Add ISWC |
+| PATCH | `/admin/writers/:id/ipi` | Add writer IPI |
+| GET | `/admin/royalties` | List royalties |
+| GET | `/admin/statements` | List statements |
+| PATCH | `/admin/statements/:id/status` | Update statement status |
+| GET | `/admin/reports/dashboard` | Admin report summary |
+| GET | `/admin/reports/activity` | Audit activity log |
+| GET | `/admin/reports/export` | Export CSV or CWR |
 
-> All endpoints below require ADMIN role.
+**PATCH `/admin/songs/:id/status`**
 
-#### PATCH /admin/kyc/:id/approve
-
-**Body Example:**
 ```json
 {
-  "note": "KYC documents verified"
+  "status": "REGISTERED",
+  "note": "All documents verified"
 }
 ```
 
-#### PATCH /admin/kyc/:id/reject
+Song status values: `SUBMITTED` · `PROCESSING` · `REGISTERED`
 
-**Body Example:**
+**PATCH `/admin/songs/:id/metadata`**
+
 ```json
 {
-  "note": "Document quality insufficient"
-}
-```
-
-#### PATCH /admin/works/:id/approve
-
-**Body Example:**
-```json
-{
-  "note": "Work approved"
-}
-```
-
-#### PATCH /admin/works/:id/reject
-
-**Body Example:**
-```json
-{
-  "note": "Metadata incomplete"
-}
-```
-
-#### PATCH /admin/works/:id/metadata
-
-**Body Example:**
-```json
-{
-  "songTitle": "Midnight Rain (Official)",
+  "songTitle": "Midnight Drive (Remaster)",
   "language": "English",
   "genre": "Pop",
-  "isrc": "USRC17607839",
-  "spotifyUrl": "https://open.spotify.com/track/abc",
-  "releaseDate": "2026-06-01T00:00:00.000Z",
-  "version": "Final"
+  "isrc": "GBUM71234567",
+  "spotifyUrl": "https://open.spotify.com/track/abc123"
 }
 ```
 
-#### PATCH /admin/works/:id/iswc
+**PATCH `/admin/songs/:id/iswc`**
 
-**Body Example:**
 ```json
-{
-  "iswc": "T-123.456.789-0"
-}
+{ "iswc": "T-123456789-0" }
 ```
 
-#### PATCH /admin/writers/:id/ipi
+**PATCH `/admin/kyc/:id/approve`**
 
-**Body Example:**
 ```json
-{
-  "ipi": "12345678901"
-}
+{ "note": "Documents verified" }
 ```
-
-#### PATCH /admin/publishers/:id/ipi
-
-**Body Example:**
-```json
-{
-  "ipi": "99887766554"
-}
-```
-
-#### GET /admin/reports/dashboard
-
-**Query Parameters:**
-- `from` (optional date)
-- `to` (optional date)
-- `format` optional (csv or cwr, default csv)
-
-**Example:**
-```
-/admin/reports/dashboard?from=2026-01-01&to=2026-12-31
-```
-
-#### GET /admin/reports/activity
-
-**Query Parameters:**
-- `page`, `limit`
-- `action` (AuditAction enum)
-- `entityType` (AuditEntityType enum)
-
-**Example:**
-```
-/admin/reports/activity?page=1&limit=20&action=APPROVE&entityType=COMPOSITION
-```
-
-#### GET /admin/reports/export
-
-**Query Parameters:**
-- `from`, `to`
-- `format=csv` or `format=cwr`
-
-**Example:**
-```
-/admin/reports/export?format=cwr&from=2026-01-01&to=2026-12-31
-```
-
-**Admin service and report integration:**
-- [src/admin/admin.service.ts](src/admin/admin.service.ts)
-- [src/reports/reports.service.ts](src/reports/reports.service.ts)
-- [src/admin/schemas/admin.zod.ts](src/admin/schemas/admin.zod.ts)
 
 ---
 
-## 11) Export Formats and Testing
+### Reports (`/reports`) — Admin only
 
-**Core export utility:**
-- [src/reports/export.utils.ts](src/reports/export.utils.ts)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/reports/royalties` | Royalty report + analytics |
+| GET | `/reports/royalties/export` | Export royalties |
+| GET | `/reports/statements` | Statement report |
+| GET | `/reports/statements/export` | Export statements |
 
-**Admin export utility:**
-- [src/admin/admin-export.utils.ts](src/admin/admin-export.utils.ts)
+**GET `/reports/royalties/export?format=csv&year=2026&month=1`**
 
-### Supported Exports
+---
 
-| Format | Usage |
-|--------|-------|
-| **CSV** | Royalties / Statements / Reports / Admin |
-| **Excel** | Royalties / Statements / Reports |
-| **PDF** | Royalties / Statements / Reports |
-| **CWR** | Admin export |
+## Project structure
 
-### Testing Export Endpoints
+```
+src/
+├── auth/           # JWT auth, registration, guards
+├── users/          # Profile & account settings
+├── kyc/            # KYC submission & review
+├── writers/        # Writer CRUD
+├── songs/          # Song registration (Composition model)
+├── royalties/      # Royalty management
+├── statements/     # Statement generation & export
+├── notifications/  # In-app notifications
+├── support/        # Contact info (email + WhatsApp)
+├── search/         # Global search
+├── admin/          # Admin dashboard & management
+├── reports/        # Admin reports & exports
+├── common/         # Filters, middleware, validation helpers
+├── shared/         # Shared enums & constants
+└── prisma/         # Prisma service & query helpers
+```
+
+---
+
+## Database
 
 ```bash
-# CSV Export
-curl -L -X GET "http://localhost:3000/admin/reports/export?format=csv" \
-  -H "Authorization: Bearer ADMIN_TOKEN" \
-  -o admin-report.csv
-
-# CWR Export
-curl -L -X GET "http://localhost:3000/admin/reports/export?format=cwr" \
-  -H "Authorization: Bearer ADMIN_TOKEN" \
-  -o admin-report.cwr
-
-# Excel Export
-curl -L -X GET "http://localhost:3000/reports/royalties/export?format=excel&year=2026" \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -o royalties.xlsx
+npx prisma migrate deploy   # apply migrations
+npx prisma generate         # regenerate client
+npx prisma studio           # GUI explorer
+npm run seed                # seed admin user (optional)
 ```
+
+### Core models
+
+`User` · `Company` · `KYC` · `Composition` (songs) · `CompositionWriter` · `Writer` · `Lyrics` · `Royalty` · `Statement` · `Notification` · `AuditLog` · `Session`
 
 ---
 
-## 12) Audit Logging and Activity Tracking
+## Testing tips
 
-Prompt 14 requirements are implemented through admin service actions and report activity APIs.
+1. Register → login → copy `accessToken`
+2. Submit KYC → admin approves → register songs
+3. Create writers first, then attach them to songs with 100% split
+4. Use Swagger at `/docs` for interactive testing
+5. Export endpoints return file downloads (not JSON wrappers)
 
-**Primary implementation files:**
-- [src/admin/admin.service.ts](src/admin/admin.service.ts)
-- [src/admin/admin.controller.ts](src/admin/admin.controller.ts)
-
-**Audit-related enums** live in schema:
-- [prisma/schema.prisma](prisma/schema.prisma)
-
----
-
-## 13) Notes on Current Module Status
-
-### Active Controller Endpoints Exist For:
-
-- app
-- auth
-- users
-- kyc
-- compositions
-- contracts
-- royalties
-- statements
-- conflicts
-- support
-- reports
-- search
-- admin
-
-### Controllers Scaffolded but Without Functional Route Handlers:
-
-- [src/notifications/notifications.controller.ts](src/notifications/notifications.controller.ts)
-- [src/publishers/publishers.controller.ts](src/publishers/publishers.controller.ts)
-- [src/recordings/recordings.controller.ts](src/recordings/recordings.controller.ts)
-- [src/writers/writers.controller.ts](src/writers/writers.controller.ts)
-
----
-
-## 14) Postman Collection Tips
-
-### Create Variables
-
-| Variable | Value |
-|----------|-------|
-| `baseUrl` | `http://localhost:3000` |
-| `accessToken` | Your JWT token |
-| `adminToken` | Admin JWT token |
-
-### Authorization Header
-
-Use pre-request script for Authorization:
-
-```
-Authorization: Bearer {{accessToken}}
-```
-
-For admin routes:
-
-```
-Authorization: Bearer {{adminToken}}
-```
-
-### Organization
-
-Group requests by module matching controller names.
-
----
-
-## 15) Troubleshooting
-
-### Prisma Client Generation Issue on Windows File Lock
+### Example curl
 
 ```bash
-# Close running Node processes
-# Re-run generation
-npm run prisma:generate
+# Login
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"your-password"}'
 
-# If still locked, restart terminal/editor and retry
+# List songs
+curl http://localhost:3000/songs?page=1&limit=10 \
+  -H "Authorization: Bearer <accessToken>"
+
+# Support contact (no auth)
+curl http://localhost:3000/support/contact
 ```
 
-### Validation Errors
-
-| Issue | Solution |
-|-------|----------|
-| Enum values invalid | Check uppercase values exactly |
-| UUID format invalid | Verify UUID format for id parameters |
-| Date format invalid | Use ISO format for Date fields |
-
-### 401/403 Errors
-
-| Error | Meaning |
-|-------|---------|
-| **401** | Token missing or invalid |
-| **403** | Role missing (for ADMIN routes) |
-
 ---
 
-## 16) Production Readiness Checklist
+## Production checklist
 
-- [ ] Set strong JWT and cookie secrets
-- [ ] Restrict CORS origins per environment
-- [ ] Run migrations in CI/CD before deploy
-- [ ] Seed only required bootstrap accounts
-- [ ] Enable secure logging and monitoring
-- [ ] Verify swagger docs are not publicly exposed in strict production environments
-
----
-
-## Additional Resources
-
-If you want, next I can also generate:
-
-- **Postman Collection:** A ready-to-import JSON for all endpoints
-- **Seed Data Matrix:** Sample realistic linked records (user, composition, royalty, statement, contract, conflict, ticket)
-- **QA Checklist:** End-to-end module validation checklist
-
----
+- [ ] Set strong JWT and cookie secrets (32+ chars)
+- [ ] Set `CORS_ORIGINS` to your frontend domain(s)
+- [ ] Set `SUPPORT_EMAIL` and `SUPPORT_WHATSAPP`
+- [ ] Run `npx prisma migrate deploy`
+- [ ] Set `NODE_ENV=production`
+- [ ] Enable HTTPS (required for secure cookies)

@@ -1,5 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, RoyaltyStatus, StatementStatus } from "@prisma/client";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { Prisma, Role, RoyaltyStatus, StatementStatus } from "@prisma/client";
+import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
+import { buildPaginatedDataResponse } from "../common/helpers/response.helper";
 import { PrismaService } from "../prisma/prisma.service";
 import { buildPagination } from "../prisma/query-helpers";
 import {
@@ -11,6 +18,7 @@ import {
 import { RoyaltiesService } from "../royalties/royalties.service";
 import { GenerateStatementDto } from "./dto/generate-statement.dto";
 import { StatementQueryDto } from "./dto/statement-query.dto";
+import { buildStatementCwrArtifact } from "./statements-export.utils";
 
 type StatementWithRelations = Prisma.StatementGetPayload<{
   include: {
@@ -22,7 +30,6 @@ type StatementWithRelations = Prisma.StatementGetPayload<{
           include: {
             composition: { select: { songTitle: true } };
             writer: { select: { legalName: true; stageName: true } };
-            publisher: { select: { publisherName: true } };
           };
         };
       };
@@ -47,6 +54,8 @@ export class StatementsService {
 
     const periodKeys = this.buildPeriodKeys(dto.periodStart, dto.periodEnd);
     const royalties = await this.royaltiesService.getStatementCandidateRoyalties({
+      userId: statementUserId,
+      includeProcessed: false,
       compositionId: dto.compositionId,
       song: dto.song,
       country: dto.country,
@@ -103,11 +112,14 @@ export class StatementsService {
       return createdStatement;
     });
 
-    return this.getById(statement.id);
+    return this.getById(
+      { userId: statementUserId, email: statementUser.email, role: Role.ADMIN },
+      statement.id,
+    );
   }
 
-  async list(query: StatementQueryDto) {
-    const where = this.buildWhere(query);
+  async list(user: AuthenticatedUser, query: StatementQueryDto) {
+    const where = this.buildWhere(user, query);
     const pagination = buildPagination(query);
 
     const [rows, total, aggregate] = await Promise.all([
@@ -127,12 +139,12 @@ export class StatementsService {
     ]);
 
     return {
-      data: rows.map((row) => this.mapStatement(row)),
-      meta: {
-        page: query.page ?? 1,
-        limit: query.limit ?? 20,
+      ...buildPaginatedDataResponse(
+        rows.map((row) => this.mapStatement(row)),
+        pagination.page,
+        pagination.limit,
         total,
-      },
+      ),
       summary: {
         totalAmount: this.decimalToNumber(aggregate._sum.totalAmount),
         statementCount: aggregate._count._all,
@@ -140,7 +152,7 @@ export class StatementsService {
     };
   }
 
-  async getById(id: string) {
+  async getById(user: AuthenticatedUser, id: string) {
     const statement = await this.prisma.statement.findUnique({
       where: { id },
       include: this.statementInclude,
@@ -150,15 +162,67 @@ export class StatementsService {
       throw new NotFoundException("Statement not found");
     }
 
+    this.assertCanAccessStatement(user, statement.userId);
+
     return this.mapStatement(statement);
   }
 
-  async export(query: StatementQueryDto, format: ExportFormat): Promise<ExportArtifact> {
+  async export(
+    user: AuthenticatedUser,
+    query: StatementQueryDto,
+    format: ExportFormat | "cwr",
+  ): Promise<ExportArtifact> {
+    this.assertAdmin(user);
+
     const rows = await this.prisma.statement.findMany({
-      where: this.buildWhere(query),
+      where: this.buildWhere(user, query),
       include: this.statementInclude,
       orderBy: [{ generatedAt: "desc" }, { createdAt: "desc" }],
     });
+
+    if (format === "cwr") {
+      const cwrRows = rows.flatMap((statement) =>
+        statement.royalties.map((entry) => ({
+          statementNo: statement.statementNo,
+          periodStart: statement.periodStart.toISOString().slice(0, 10),
+          periodEnd: statement.periodEnd.toISOString().slice(0, 10),
+          songTitle: entry.royalty.composition?.songTitle ?? "",
+          writerName: entry.royalty.writer?.stageName ?? entry.royalty.writer?.legalName ?? "",
+          sourceDsp: entry.royalty.sourceDsp ?? "",
+          month: entry.royalty.periodMonth,
+          year: entry.royalty.periodYear,
+          allocatedAmount: this.decimalToNumber(entry.allocatedAmount).toFixed(4),
+          currency: statement.currency,
+        })),
+      );
+
+      return {
+        buffer: Buffer.from(
+          [
+            "HDR|STATEMENT_EXPORT",
+            ...cwrRows.map((row) =>
+              [
+                "SWR",
+                row.statementNo,
+                row.periodStart,
+                row.periodEnd,
+                row.songTitle,
+                row.writerName,
+                row.sourceDsp,
+                String(row.year),
+                String(row.month).padStart(2, "0"),
+                row.allocatedAmount,
+                row.currency,
+              ].join("|"),
+            ),
+            `TRL|${cwrRows.length}`,
+          ].join("\n") + "\n",
+          "utf8",
+        ),
+        mimeType: "text/plain; charset=utf-8",
+        fileName: `${this.buildStatementListFileName(query)}.cwr`,
+      };
+    }
 
     return buildExportArtifact(
       "Statements",
@@ -168,7 +232,11 @@ export class StatementsService {
     );
   }
 
-  async exportById(id: string, format: ExportFormat): Promise<ExportArtifact> {
+  async exportById(
+    user: AuthenticatedUser,
+    id: string,
+    format: ExportFormat | "cwr",
+  ): Promise<ExportArtifact> {
     const statement = await this.prisma.statement.findUnique({
       where: { id },
       include: this.statementInclude,
@@ -176,6 +244,29 @@ export class StatementsService {
 
     if (!statement) {
       throw new NotFoundException("Statement not found");
+    }
+
+    this.assertCanAccessStatement(user, statement.userId);
+
+    if (format === "cwr") {
+      return buildStatementCwrArtifact({
+        statementNo: statement.statementNo,
+        periodStart: statement.periodStart,
+        periodEnd: statement.periodEnd,
+        generatedAt: statement.generatedAt,
+        royalties: statement.royalties.map((entry) => ({
+          royaltyId: entry.royalty.id,
+          songTitle: entry.royalty.composition?.songTitle ?? "",
+          writerName: entry.royalty.writer?.stageName ?? entry.royalty.writer?.legalName ?? "",
+          territory: entry.royalty.country ?? "",
+          sourceDsp: entry.royalty.sourceDsp ?? "",
+          periodYear: entry.royalty.periodYear,
+          periodMonth: entry.royalty.periodMonth,
+          grossAmount: entry.royalty.amount,
+          allocatedAmount: entry.allocatedAmount,
+          currency: statement.currency,
+        })),
+      });
     }
 
     const rows = statement.royalties.map((entry) => ({
@@ -188,7 +279,6 @@ export class StatementsService {
       country: entry.royalty.country ?? "",
       dsp: entry.royalty.sourceDsp ?? "",
       writer: entry.royalty.writer?.stageName ?? entry.royalty.writer?.legalName ?? "",
-      publisher: entry.royalty.publisher?.publisherName ?? "",
       grossAmount: this.decimalToNumber(entry.royalty.amount).toFixed(4),
       allocatedAmount: this.decimalToNumber(entry.allocatedAmount).toFixed(4),
       currency: statement.currency,
@@ -198,7 +288,7 @@ export class StatementsService {
       `Statement ${statement.statementNo}`,
       `statement-${statement.statementNo.toLowerCase()}`,
       rows,
-      format,
+      format as ExportFormat,
     );
   }
 
@@ -211,19 +301,27 @@ export class StatementsService {
           include: {
             composition: { select: { songTitle: true } },
             writer: { select: { legalName: true, stageName: true } },
-            publisher: { select: { publisherName: true } },
           },
         },
       },
     },
   } satisfies Prisma.StatementInclude;
 
-  private buildWhere(query: Partial<StatementQueryDto>): Prisma.StatementWhereInput {
-    const where: Prisma.StatementWhereInput = {};
+  private buildWhere(
+    user: AuthenticatedUser,
+    query: Partial<StatementQueryDto>,
+  ): Prisma.StatementWhereInput {
+    const where: Prisma.StatementWhereInput = {
+      deletedAt: null,
+    };
     const royaltyFilter: Prisma.RoyaltyWhereInput = {};
 
     if (query.userId) {
       where.userId = query.userId;
+    }
+
+    if (user.role !== Role.ADMIN) {
+      where.userId = user.userId;
     }
 
     if (query.companyId) {
@@ -384,5 +482,21 @@ export class StatementsService {
 
   private getNetAmount(amount: Prisma.Decimal, sharePercentage: Prisma.Decimal): number {
     return (Number(amount) * Number(sharePercentage)) / 100;
+  }
+
+  private assertAdmin(user: AuthenticatedUser): void {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException("Only admins can perform this action");
+    }
+  }
+
+  private assertCanAccessStatement(user: AuthenticatedUser, statementUserId: string): void {
+    if (user.role === Role.ADMIN) {
+      return;
+    }
+
+    if (user.userId !== statementUserId) {
+      throw new ForbiddenException("You can only access your own statements");
+    }
   }
 }

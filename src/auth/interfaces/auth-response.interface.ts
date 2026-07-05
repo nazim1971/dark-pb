@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { RegistrationType, Role, UserStatus } from "@prisma/client";
 
 export interface UserProfileResponse {
   id: string;
@@ -6,6 +6,15 @@ export interface UserProfileResponse {
   firstName: string;
   lastName: string;
   role: Role;
+  status?: UserStatus;
+  registrationType?: RegistrationType;
+  legalName?: string | null;
+  stageName?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  dateOfBirth?: Date | null;
+  pro?: string | null;
+  ipiNumber?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

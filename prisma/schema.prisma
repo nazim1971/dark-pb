@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -22,6 +22,11 @@ enum RegistrationType {
   COMPANY
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum CompanyType {
   PUBLISHER
   RECORD_LABEL
@@ -31,16 +36,14 @@ enum CompanyType {
 
 enum KycStatus {
   PENDING
-  APPROVED
+  VERIFIED
   REJECTED
 }
 
-enum PublishingStatus {
-  DRAFT
+enum SongStatus {
   SUBMITTED
-  UNDER_REVIEW
-  PUBLISHED
-  REJECTED
+  PROCESSING
+  REGISTERED
 }
 
 enum WriterRole {
@@ -67,56 +70,11 @@ enum RoyaltyStatus {
   PAID
 }
 
-enum ContractType {
-  PUBLISHING_AGREEMENT
-  SPLIT_SHEET
-  ADMINISTRATION_AGREEMENT
-}
-
-enum ContractStatus {
-  DRAFT
-  ACTIVE
-  EXPIRED
-  TERMINATED
-}
-
 enum StatementStatus {
   DRAFT
   FINALIZED
   SENT
   PAID
-}
-
-enum ConflictStatus {
-  OPEN
-  UNDER_REVIEW
-  RESOLVED
-  REJECTED
-}
-
-enum TicketStatus {
-  OPEN
-  IN_PROGRESS
-  WAITING_FOR_USER
-  RESOLVED
-  CLOSED
-}
-
-enum TicketPriority {
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
-}
-
-enum TicketCategory {
-  ACCOUNT
-  KYC
-  COMPOSITION
-  ROYALTY
-  CONTRACT
-  TECHNICAL
-  OTHER
 }
 
 enum NotificationType {
@@ -144,64 +102,59 @@ enum AuditEntityType {
   KYC
   COMPOSITION
   WRITER
-  RECORDING
-  PUBLISHER
   LYRICS
-  CONTRACT
   ROYALTY
   STATEMENT
-  CONFLICT
-  TICKET
   NOTIFICATION
 }
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  email        String    @unique
-  passwordHash String
-  legalName    String?
-  stageName    String?
-  firstName    String
-  lastName     String
-  country      String?
-  phone        String?
+  id                String           @id @default(uuid()) @db.Uuid
+  email             String           @unique
+  passwordHash      String
+  legalName         String?
+  stageName         String?
+  firstName         String
+  lastName          String
+  country           String?
+  phone             String?
+  dateOfBirth       DateTime?
   spotifyArtistLink String?
-  pro          String?
-  ipiNumber    String?
-  role         Role      @default(ARTIST)
-  registrationType RegistrationType @default(INDIVIDUAL)
-  companyId    String?   @db.Uuid
+  pro               String?
+  ipiNumber         String?
+  role              Role             @default(ARTIST)
+  status            UserStatus       @default(ACTIVE)
+  registrationType  RegistrationType @default(INDIVIDUAL)
+  companyId         String?          @db.Uuid
   emailVerifiedAt               DateTime?
   emailVerificationTokenHash    String?
   emailVerificationExpiresAt    DateTime?
   passwordResetTokenHash        String?
   passwordResetExpiresAt        DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
 
-  company             Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company             Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   sessions            Session[]
-  createdCompositions Composition[]   @relation("CompositionOwner")
-  kycProfile          KYC?            @relation("UserKycSubject")
-  reviewedKycs        KYC[]           @relation("KycReviewer")
+  createdCompositions Composition[] @relation("CompositionOwner")
+  kycProfile          KYC?          @relation("UserKycSubject")
+  reviewedKycs        KYC[]         @relation("KycReviewer")
   writerProfiles      Writer[]
-  contractsCreated    Contract[]      @relation("ContractCreator")
   statements          Statement[]
-  reportedConflicts   Conflict[]      @relation("ConflictReporter")
-  createdTickets      Ticket[]        @relation("TicketCreator")
-  assignedTickets     Ticket[]        @relation("TicketAssignee")
-  ticketReplies       TicketReply[]
   notifications       Notification[]
-  auditLogs           AuditLog[]      @relation("AuditActor")
+  auditLogs           AuditLog[]    @relation("AuditActor")
 
   @@index([companyId])
   @@index([role])
+  @@index([status])
   @@index([registrationType])
+  @@index([dateOfBirth])
   @@index([ipiNumber])
   @@index([emailVerifiedAt])
   @@index([deletedAt])
   @@index([createdAt])
+  @@index([role, status, deletedAt])
   @@map("users")
 }
 
@@ -215,6 +168,8 @@ model Company {
   email              String?
   phone              String?
   registrationNumber String?
+  vatNumber          String?
+  website            String?
   taxId              String?
   country            String?
   type               CompanyType @default(OTHER)
@@ -224,9 +179,7 @@ model Company {
 
   users         User[]
   kycRecords    KYC[]
-  publishers    Publisher[]
   compositions  Composition[]
-  contracts     Contract[]
   statements    Statement[]
   notifications Notification[]
   auditLogs     AuditLog[]
@@ -261,60 +214,71 @@ model KYC {
   @@index([status])
   @@index([reviewedById])
   @@index([deletedAt])
+  @@index([status, deletedAt])
   @@map("kyc")
 }
 
 model Composition {
-  id               String           @id @default(uuid()) @db.Uuid
-  ownerId          String           @db.Uuid
-  companyId        String?          @db.Uuid
+  id               String     @id @default(uuid()) @db.Uuid
+  ownerId          String     @db.Uuid
+  companyId        String?    @db.Uuid
+  dlrpId           String?    @unique
+  released         Boolean    @default(false)
   songTitle        String
   alternativeTitle String?
+  artistName       String?
   language         String?
   genre            String?
   spotifyUrl       String?
   appleMusicUrl    String?
   youtubeUrl       String?
-  iswc             String?          @unique
+  ipiNumber        String?
+  iswc             String?    @unique
   isrc             String?
+  duration         Int?
   releaseDate      DateTime?
   version          String?
-  status           PublishingStatus @default(DRAFT)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  songStatus       SongStatus @default(SUBMITTED)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
   deletedAt        DateTime?
 
-  owner      User                   @relation("CompositionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  company    Company?               @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  lyrics     Lyrics?
-  writers    CompositionWriter[]
-  recordings CompositionRecording[]
-  publishers CompositionPublisher[]
-  contracts  ContractComposition[]
-  royalties  Royalty[]
-  conflicts  Conflict[]
+  owner     User                @relation("CompositionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  company   Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  lyrics    Lyrics?
+  writers   CompositionWriter[]
+  royalties Royalty[]
 
   @@index([ownerId])
   @@index([companyId])
+  @@index([dlrpId])
+  @@index([released])
   @@index([songTitle])
   @@index([alternativeTitle])
+  @@index([artistName])
   @@index([spotifyUrl])
+  @@index([ipiNumber])
   @@index([iswc])
   @@index([isrc])
-  @@index([status])
+  @@index([songStatus])
   @@index([deletedAt])
   @@index([createdAt])
+  @@index([ownerId, songStatus, deletedAt])
+  @@index([ownerId, deletedAt, updatedAt])
   @@map("compositions")
 }
 
 model Writer {
   id        String     @id @default(uuid()) @db.Uuid
   userId    String?    @db.Uuid
+  firstName String?
+  lastName  String?
   legalName String
   stageName String?
   ipiNumber String?    @unique
   pro       String?
   role      WriterRole @default(SONGWRITER)
+  dob       DateTime?
   country   String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -325,6 +289,8 @@ model Writer {
   royalties    Royalty[]
 
   @@index([userId])
+  @@index([firstName])
+  @@index([lastName])
   @@index([legalName])
   @@index([stageName])
   @@index([pro])
@@ -332,61 +298,14 @@ model Writer {
   @@map("writers")
 }
 
-model Recording {
-  id             String   @id @default(uuid()) @db.Uuid
-  isrc           String?  @unique
-  artist         String?
-  spotifyLink    String?
-  appleMusicUrl  String?
-  youtubeUrl     String?
-  durationSecond Int?
-  releaseDate    DateTime?
-  version        String?
-  label          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  deletedAt      DateTime?
-
-  compositions CompositionRecording[]
-  royalties    Royalty[]
-
-  @@index([isrc])
-  @@index([artist])
-  @@index([spotifyLink])
-  @@index([deletedAt])
-  @@map("recordings")
-}
-
-model Publisher {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String?  @db.Uuid
-  publisherName String
-  ipi           String?  @unique
-  territory     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
-
-  company      Company?               @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  compositions CompositionPublisher[]
-  contracts    Contract[]
-  royalties    Royalty[]
-
-  @@index([companyId])
-  @@index([publisherName])
-  @@index([territory])
-  @@index([deletedAt])
-  @@map("publishers")
-}
-
 model Lyrics {
-  id            String   @id @default(uuid()) @db.Uuid
-  compositionId String   @unique @db.Uuid
+  id            String    @id @default(uuid()) @db.Uuid
+  compositionId String    @unique @db.Uuid
   body          String
   language      String?
   version       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
   composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
@@ -395,44 +314,10 @@ model Lyrics {
   @@map("lyrics")
 }
 
-model Contract {
-  id            String         @id @default(uuid()) @db.Uuid
-  contractNo    String         @unique
-  title         String
-  type          ContractType
-  status        ContractStatus @default(DRAFT)
-  effectiveFrom DateTime
-  effectiveTo   DateTime?
-  companyId     String?        @db.Uuid
-  publisherId   String?        @db.Uuid
-  createdById   String         @db.Uuid
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  deletedAt     DateTime?
-
-  company      Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  publisher    Publisher?            @relation(fields: [publisherId], references: [id], onDelete: SetNull)
-  createdBy    User                  @relation("ContractCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  compositions ContractComposition[]
-  royalties    Royalty[]
-
-  @@index([companyId])
-  @@index([publisherId])
-  @@index([createdById])
-  @@index([type])
-  @@index([status])
-  @@index([effectiveFrom, effectiveTo])
-  @@index([deletedAt])
-  @@map("contracts")
-}
-
 model Royalty {
   id              String        @id @default(uuid()) @db.Uuid
   compositionId   String?       @db.Uuid
-  recordingId     String?       @db.Uuid
   writerId        String?       @db.Uuid
-  publisherId     String?       @db.Uuid
-  contractId      String?       @db.Uuid
   type            RoyaltyType
   status          RoyaltyStatus @default(PENDING)
   sourceDsp       String?
@@ -447,24 +332,20 @@ model Royalty {
   updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?
 
-  composition Composition?      @relation(fields: [compositionId], references: [id], onDelete: SetNull)
-  recording   Recording?        @relation(fields: [recordingId], references: [id], onDelete: SetNull)
-  writer      Writer?           @relation(fields: [writerId], references: [id], onDelete: SetNull)
-  publisher   Publisher?        @relation(fields: [publisherId], references: [id], onDelete: SetNull)
-  contract    Contract?         @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  composition Composition?     @relation(fields: [compositionId], references: [id], onDelete: SetNull)
+  writer      Writer?          @relation(fields: [writerId], references: [id], onDelete: SetNull)
   statements  StatementRoyalty[]
 
   @@index([compositionId])
-  @@index([recordingId])
   @@index([writerId])
-  @@index([publisherId])
-  @@index([contractId])
   @@index([type])
   @@index([status])
   @@index([periodYear, periodMonth])
   @@index([country])
   @@index([sourceDsp])
   @@index([deletedAt])
+  @@index([compositionId, status, deletedAt])
+  @@index([status, periodYear, periodMonth, deletedAt])
   @@map("royalties")
 }
 
@@ -492,80 +373,8 @@ model Statement {
   @@index([status])
   @@index([periodStart, periodEnd])
   @@index([deletedAt])
+  @@index([userId, status, deletedAt])
   @@map("statements")
-}
-
-model Conflict {
-  id              String         @id @default(uuid()) @db.Uuid
-  compositionId   String         @db.Uuid
-  reportingUserId String?        @db.Uuid
-  conflictReason  String
-  currentClaim    Decimal        @db.Decimal(5, 2)
-  ourClaim        Decimal        @db.Decimal(5, 2)
-  status          ConflictStatus @default(OPEN)
-  resolutionNote  String?
-  resolvedAt      DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  deletedAt       DateTime?
-
-  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
-  reporter    User?       @relation("ConflictReporter", fields: [reportingUserId], references: [id], onDelete: SetNull)
-
-  @@index([compositionId])
-  @@index([reportingUserId])
-  @@index([status])
-  @@index([createdAt])
-  @@index([resolvedAt])
-  @@index([deletedAt])
-  @@map("conflicts")
-}
-
-model Ticket {
-  id           String         @id @default(uuid()) @db.Uuid
-  ticketNo     String         @unique
-  userId       String         @db.Uuid
-  assignedToId String?        @db.Uuid
-  subject      String
-  message      String
-  category     TicketCategory @default(OTHER)
-  priority     TicketPriority @default(MEDIUM)
-  status       TicketStatus   @default(OPEN)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  deletedAt    DateTime?
-
-  user       User  @relation("TicketCreator", fields: [userId], references: [id], onDelete: Cascade)
-  assignedTo User? @relation("TicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  replies    TicketReply[]
-
-  @@index([userId])
-  @@index([assignedToId])
-  @@index([status])
-  @@index([priority])
-  @@index([createdAt])
-  @@index([deletedAt])
-  @@map("tickets")
-}
-
-model TicketReply {
-  id           String   @id @default(uuid()) @db.Uuid
-  ticketId      String   @db.Uuid
-  userId        String   @db.Uuid
-  message       String
-  isAdminReply  Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
-
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([ticketId])
-  @@index([userId])
-  @@index([createdAt])
-  @@index([deletedAt])
-  @@map("ticket_replies")
 }
 
 model Notification {
@@ -590,6 +399,7 @@ model Notification {
   @@index([isRead])
   @@index([type])
   @@index([deletedAt])
+  @@index([userId, isRead, deletedAt])
   @@map("notifications")
 }
 
@@ -620,14 +430,14 @@ model AuditLog {
 }
 
 model CompositionWriter {
-  id                  String   @id @default(uuid()) @db.Uuid
-  compositionId       String   @db.Uuid
-  writerId            String   @db.Uuid
+  id                  String    @id @default(uuid()) @db.Uuid
+  compositionId       String    @db.Uuid
+  writerId            String    @db.Uuid
   controlledPublisher String?
-  writerShare         Decimal  @db.Decimal(5, 2)
-  publisherShare      Decimal? @db.Decimal(5, 2)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  writerShare         Decimal   @db.Decimal(5, 2)
+  publisherShare      Decimal?  @db.Decimal(5, 2)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   deletedAt           DateTime?
 
   composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
@@ -639,71 +449,13 @@ model CompositionWriter {
   @@map("composition_writers")
 }
 
-model CompositionPublisher {
-  id              String   @id @default(uuid()) @db.Uuid
-  compositionId   String   @db.Uuid
-  publisherId     String   @db.Uuid
-  territory       String?
-  sharePercentage Decimal  @db.Decimal(5, 2)
-  agreementFrom   DateTime?
-  agreementTo     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
-
-  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
-  publisher   Publisher   @relation(fields: [publisherId], references: [id], onDelete: Cascade)
-
-  @@unique([compositionId, publisherId])
-  @@index([publisherId])
-  @@index([deletedAt])
-  @@map("composition_publishers")
-}
-
-model CompositionRecording {
-  id            String   @id @default(uuid()) @db.Uuid
-  compositionId String   @db.Uuid
-  recordingId   String   @db.Uuid
-  isPrimary     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
-
-  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
-  recording   Recording   @relation(fields: [recordingId], references: [id], onDelete: Cascade)
-
-  @@unique([compositionId, recordingId])
-  @@index([recordingId])
-  @@index([deletedAt])
-  @@map("composition_recordings")
-}
-
-model ContractComposition {
-  id              String   @id @default(uuid()) @db.Uuid
-  contractId      String   @db.Uuid
-  compositionId   String   @db.Uuid
-  territory       String?
-  sharePercentage Decimal? @db.Decimal(5, 2)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
-
-  contract    Contract    @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
-
-  @@unique([contractId, compositionId])
-  @@index([compositionId])
-  @@index([deletedAt])
-  @@map("contract_compositions")
-}
-
 model StatementRoyalty {
-  id              String   @id @default(uuid()) @db.Uuid
-  statementId     String   @db.Uuid
-  royaltyId       String   @db.Uuid
-  allocatedAmount Decimal  @db.Decimal(18, 4)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id              String    @id @default(uuid()) @db.Uuid
+  statementId     String    @db.Uuid
+  royaltyId       String    @db.Uuid
+  allocatedAmount Decimal   @db.Decimal(18, 4)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
   statement Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
@@ -716,17 +468,17 @@ model StatementRoyalty {
 }
 
 model Session {
-  id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @db.Uuid
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
   refreshTokenHash String
   userAgent        String?
   ipAddress        String?
   expiresAt        DateTime
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
   lastUsedAt       DateTime?
   revokedAt        DateTime?
   compromisedAt    DateTime?
-  replacedById     String?  @db.Uuid
+  replacedById     String?   @db.Uuid
   deletedAt        DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

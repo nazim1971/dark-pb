@@ -1,0 +1,6 @@
+export enum UserRole {
+  ADMIN = "ADMIN",
+  SONGWRITER = "SONGWRITER",
+  PUBLISHER = "PUBLISHER",
+  RECORD_LABEL = "RECORD_LABEL",
+}

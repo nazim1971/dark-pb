@@ -40,6 +40,18 @@ export class RegisterDto {
 
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  legalFirstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  legalLastName?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   stageName?: string;
 
@@ -52,6 +64,16 @@ export class RegisterDto {
   @IsString()
   @MaxLength(40)
   phone?: string;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    return value.trim();
+  })
+  dateOfBirth?: string;
 
   @IsOptional()
   @IsString()
@@ -96,6 +118,11 @@ export class RegisterDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(160)
+  companyLegalName?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   companyNumber?: string;
 
@@ -110,6 +137,11 @@ export class RegisterDto {
   director?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  representativeName?: string;
+
+  @IsOptional()
   @IsEmail()
   companyEmail?: string;
 
@@ -117,6 +149,21 @@ export class RegisterDto {
   @IsString()
   @MaxLength(40)
   companyPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  registrationNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  vatNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  website?: string;
 
   @IsOptional()
   @IsEnum(CompanyType)

@@ -12,11 +12,36 @@ export const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const searchQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+});
+
+export const adminSearchQuerySchema = z.object({
+  search: z.string().trim().max(200).optional(),
+});
+
+export const sortQuerySchema = z.object({
+  sortBy: z.string().trim().max(64).optional(),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
+});
+
+export const dateRangeQuerySchema = z
+  .object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .refine((data) => !data.from || !data.to || data.to >= data.from, {
+    message: "to must be on or after from",
+    path: ["to"],
+  });
+
+export const listQuerySchema = paginationSchema.merge(searchQuerySchema).merge(sortQuerySchema);
+
 export function makeCreateAndUpdateSchemas<TShape extends z.ZodRawShape>(
   shape: TShape,
 ): {
-  createSchema: z.AnyZodObject;
-  updateSchema: z.AnyZodObject;
+  createSchema: z.ZodObject<TShape>;
+  updateSchema: z.ZodObject<{ id: z.ZodString } & { [k in keyof TShape]: z.ZodOptional<TShape[k]> }>;
 } {
   const createSchema = z.object(shape);
   const updateSchema = z.object({

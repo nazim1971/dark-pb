@@ -1,6 +1,8 @@
 import { Type } from "class-transformer";
 import {
+  IsDate,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,34 +14,23 @@ import {
 } from "class-validator";
 import { RoyaltyType } from "@prisma/client";
 
-export class CreateRoyaltyDto {
-  @IsOptional()
-  @IsUUID()
-  compositionId?: string;
+export const DSP_VALUES = ["Spotify", "Apple Music", "YouTube", "TikTok", "Meta", "Other"];
+export type DspValue = (typeof DSP_VALUES)[number];
 
-  @IsOptional()
+export class CreateRoyaltyDto {
   @IsUUID()
-  recordingId?: string;
+  compositionId!: string;
 
   @IsOptional()
   @IsUUID()
   writerId?: string;
 
   @IsOptional()
-  @IsUUID()
-  publisherId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  contractId?: string;
-
   @IsEnum(RoyaltyType)
-  type!: RoyaltyType;
+  type?: RoyaltyType;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  sourceDsp?: string;
+  @IsIn(DSP_VALUES)
+  dsp!: DspValue;
 
   @IsOptional()
   @IsString()
@@ -48,24 +39,18 @@ export class CreateRoyaltyDto {
 
   @IsOptional()
   @Type(() => Date)
-  usageDate?: Date;
+  @IsDate()
+  royaltyDate?: Date;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 0 })
-  @Min(1900)
-  @Max(3000)
-  periodYear!: number;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 0 })
-  @Min(1)
-  @Max(12)
-  periodMonth!: number;
+  @Min(0)
+  totalViews!: number;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
-  amount!: number;
+  grossAmount!: number;
 
   @IsOptional()
   @IsString()
@@ -76,5 +61,5 @@ export class CreateRoyaltyDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
-  sharePercentage!: number;
+  adminSharePercentage!: number;
 }

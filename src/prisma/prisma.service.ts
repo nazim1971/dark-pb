@@ -54,20 +54,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     return this.getDelegate("writer", "Writer");
   }
 
-  get recording(): PrismaClient["recording"] {
-    return this.getDelegate("recording", "Recording");
-  }
-
-  get publisher(): PrismaClient["publisher"] {
-    return this.getDelegate("publisher", "Publisher");
-  }
-
   get lyrics(): PrismaClient["lyrics"] {
     return this.getDelegate("lyrics", "Lyrics");
-  }
-
-  get contract(): PrismaClient["contract"] {
-    return this.getDelegate("contract", "Contract");
   }
 
   get royalty(): PrismaClient["royalty"] {
@@ -76,18 +64,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
 
   get statement(): PrismaClient["statement"] {
     return this.getDelegate("statement", "Statement");
-  }
-
-  get conflict(): PrismaClient["conflict"] {
-    return this.getDelegate("conflict", "Conflict");
-  }
-
-  get ticket(): PrismaClient["ticket"] {
-    return this.getDelegate("ticket", "Ticket");
-  }
-
-  get ticketReply(): PrismaClient["ticketReply"] {
-    return this.getDelegate("ticketReply", "TicketReply");
   }
 
   get notification(): PrismaClient["notification"] {
@@ -100,18 +76,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
 
   get compositionWriter(): PrismaClient["compositionWriter"] {
     return this.getDelegate("compositionWriter", "CompositionWriter");
-  }
-
-  get compositionPublisher(): PrismaClient["compositionPublisher"] {
-    return this.getDelegate("compositionPublisher", "CompositionPublisher");
-  }
-
-  get compositionRecording(): PrismaClient["compositionRecording"] {
-    return this.getDelegate("compositionRecording", "CompositionRecording");
-  }
-
-  get contractComposition(): PrismaClient["contractComposition"] {
-    return this.getDelegate("contractComposition", "ContractComposition");
   }
 
   get statementRoyalty(): PrismaClient["statementRoyalty"] {
@@ -313,21 +277,12 @@ type DelegateName =
   | "kYC"
   | "composition"
   | "writer"
-  | "recording"
-  | "publisher"
   | "lyrics"
-  | "contract"
   | "royalty"
   | "statement"
-  | "conflict"
-  | "ticket"
-  | "ticketReply"
   | "notification"
   | "auditLog"
   | "compositionWriter"
-  | "compositionPublisher"
-  | "compositionRecording"
-  | "contractComposition"
   | "statementRoyalty"
   | "session";
 
@@ -337,21 +292,12 @@ type SoftDeleteModelName =
   | "KYC"
   | "Composition"
   | "Writer"
-  | "Recording"
-  | "Publisher"
   | "Lyrics"
-  | "Contract"
   | "Royalty"
   | "Statement"
-  | "Conflict"
-  | "Ticket"
-  | "TicketReply"
   | "Notification"
   | "AuditLog"
   | "CompositionWriter"
-  | "CompositionPublisher"
-  | "CompositionRecording"
-  | "ContractComposition"
   | "StatementRoyalty"
   | "Session";
 
@@ -370,21 +316,12 @@ const SOFT_DELETE_MODELS = new Set<SoftDeleteModelName>([
   "KYC",
   "Composition",
   "Writer",
-  "Recording",
-  "Publisher",
   "Lyrics",
-  "Contract",
   "Royalty",
   "Statement",
-  "Conflict",
-  "Ticket",
-  "TicketReply",
   "Notification",
   "AuditLog",
   "CompositionWriter",
-  "CompositionPublisher",
-  "CompositionRecording",
-  "ContractComposition",
   "StatementRoyalty",
   "Session",
 ]);

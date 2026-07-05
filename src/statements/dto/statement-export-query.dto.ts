@@ -3,6 +3,6 @@ import { StatementQueryDto } from "./statement-query.dto";
 
 export class StatementExportQueryDto extends StatementQueryDto {
   @IsOptional()
-  @IsIn(["csv", "excel", "pdf"])
-  format: "csv" | "excel" | "pdf" = "csv";
+  @IsIn(["csv", "excel", "pdf", "cwr"])
+  format: "csv" | "excel" | "pdf" | "cwr" = "csv";
 }

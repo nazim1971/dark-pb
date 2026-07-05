@@ -1,4 +1,9 @@
 import { Prisma } from "@prisma/client";
+import {
+  DEFAULT_LIMIT,
+  DEFAULT_PAGE,
+  MAX_LIMIT,
+} from "../shared/constants/pagination.constants";
 
 export interface PaginationArgs {
   page?: number;
@@ -8,13 +13,17 @@ export interface PaginationArgs {
 export interface PaginationQuery {
   skip: number;
   take: number;
+  page: number;
+  limit: number;
 }
 
 export function buildPagination(args?: PaginationArgs): PaginationQuery {
-  const page = Math.max(1, args?.page ?? 1);
-  const limit = Math.max(1, Math.min(100, args?.limit ?? 20));
+  const page = Math.max(1, args?.page ?? DEFAULT_PAGE);
+  const limit = Math.max(1, Math.min(MAX_LIMIT, args?.limit ?? DEFAULT_LIMIT));
 
   return {
+    page,
+    limit,
     skip: (page - 1) * limit,
     take: limit,
   };
@@ -63,20 +72,52 @@ export function buildDateRangeFilter(
   };
 }
 
+export function buildPrismaDateRangeFilter(from?: Date, to?: Date): Prisma.DateTimeFilter | undefined {
+  if (!from && !to) {
+    return undefined;
+  }
+
+  return {
+    ...(from ? { gte: from } : {}),
+    ...(to ? { lte: to } : {}),
+  };
+}
+
 export function buildSearchContainsFilter(
   fields: string[],
   term?: string,
 ): Record<string, unknown> {
-  if (!term) {
+  if (!term?.trim()) {
     return {};
   }
+
+  const normalized = term.trim();
 
   return {
     OR: fields.map((field) => ({
       [field]: {
-        contains: term,
+        contains: normalized,
         mode: "insensitive",
       },
     })),
   };
+}
+
+export function mergeWhereClauses(
+  ...clauses: Array<Record<string, unknown> | undefined>
+): Record<string, unknown> {
+  const defined = clauses.filter(
+    (clause): clause is Record<string, unknown> =>
+      clause !== undefined && Object.keys(clause).length > 0,
+  );
+
+  if (defined.length === 0) {
+    return {};
+  }
+
+  if (defined.length === 1) {
+    return defined[0];
+  }
+
+  return { AND: defined };
 }

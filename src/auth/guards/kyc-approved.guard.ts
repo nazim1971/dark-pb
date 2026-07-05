@@ -51,7 +51,7 @@ export class KycApprovedGuard implements CanActivate {
     const approvedKyc = await this.prisma.kYC.findFirst({
       where: {
         userId: user.userId,
-        status: KycStatus.APPROVED,
+        status: KycStatus.VERIFIED,
         deletedAt: null,
       },
       select: { id: true },

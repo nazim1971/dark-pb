@@ -1,7 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma, Role } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
+import { CompanyType, Prisma, Role } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
+import { buildPaginatedDataResponse } from "../common/helpers/response.helper";
+import { PrismaService } from "../prisma/prisma.service";
+import { buildPagination } from "../prisma/query-helpers";
 import {
   SearchEntityType,
   SearchQueryDto,
@@ -9,18 +11,11 @@ import {
   SearchSortDirection,
 } from "./dto/search-query.dto";
 
-interface RawRankResult {
-  entityType: SearchEntityType;
-  entityId: string;
-  rank: number;
-}
-
 export interface SearchItem {
   entityType: SearchEntityType;
   id: string;
   title: string;
   subtitle: string | null;
-  tags: string[];
   score: number;
   createdAt: Date;
   updatedAt: Date;
@@ -32,458 +27,369 @@ export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
   async globalSearch(user: AuthenticatedUser, query: SearchQueryDto) {
-    const types = this.resolveTypes(query.types);
-    const candidateLimit = Math.max(query.limit * 5, 100);
-    const ranking = query.q ? await this.fetchFullTextRanks(query.q, types, candidateLimit) : [];
+    const q = query.q.trim();
+    const types = this.resolveTypes(user, query.types);
+    const candidateLimit = Math.max(query.limit * 4, 80);
 
-    const rankMap = new Map<string, number>(
-      ranking.map((item) => [this.rankKey(item.entityType, item.entityId), item.rank]),
-    );
-
-    const groupedIds = this.groupIdsByType(ranking);
-
-    const [compositions, writers, publishers, recordings] = await Promise.all([
-      types.includes(SearchEntityType.COMPOSITION)
-        ? this.searchCompositions(user, query, groupedIds.composition, candidateLimit)
+    const [songs, writers, users, publishers, recordLabels] = await Promise.all([
+      types.includes(SearchEntityType.SONG)
+        ? this.searchSongs(user, q, candidateLimit)
         : Promise.resolve([]),
       types.includes(SearchEntityType.WRITER)
-        ? this.searchWriters(query, groupedIds.writer, candidateLimit)
+        ? this.searchWriters(user, q, candidateLimit)
         : Promise.resolve([]),
-      types.includes(SearchEntityType.PUBLISHER)
-        ? this.searchPublishers(query, groupedIds.publisher, candidateLimit)
+      types.includes(SearchEntityType.USER) && user.role === Role.ADMIN
+        ? this.searchUsers(q, candidateLimit)
         : Promise.resolve([]),
-      types.includes(SearchEntityType.RECORDING)
-        ? this.searchRecordings(query, groupedIds.recording, candidateLimit)
+      types.includes(SearchEntityType.PUBLISHER) && user.role === Role.ADMIN
+        ? this.searchPublishers(q, candidateLimit)
+        : Promise.resolve([]),
+      types.includes(SearchEntityType.RECORD_LABEL) && user.role === Role.ADMIN
+        ? this.searchRecordLabels(q, candidateLimit)
         : Promise.resolve([]),
     ]);
 
-    const rows: SearchItem[] = [
-      ...compositions.map((item) => this.mapComposition(item, rankMap)),
-      ...writers.map((item) => this.mapWriter(item, rankMap)),
-      ...publishers.map((item) => this.mapPublisher(item, rankMap)),
-      ...recordings.map((item) => this.mapRecording(item, rankMap)),
-    ];
-
-    const sorted = this.sortRows(rows, query.sortBy, query.sortDirection, !!query.q);
-    const offset = (query.page - 1) * query.limit;
-    const paged = sorted.slice(offset, offset + query.limit);
+    const rows = [...songs, ...writers, ...users, ...publishers, ...recordLabels];
+    const sorted = this.sortRows(rows, query.sortBy, query.sortDirection);
+    const pagination = buildPagination(query);
 
     return {
-      data: paged,
-      meta: {
-        page: query.page,
-        limit: query.limit,
-        total: sorted.length,
-      },
+      ...buildPaginatedDataResponse(
+        sorted.slice(pagination.skip, pagination.skip + pagination.take),
+        pagination.page,
+        pagination.limit,
+        sorted.length,
+      ),
       filters: {
+        q,
         types,
-        query: query.q ?? null,
       },
     };
   }
 
-  private async fetchFullTextRanks(
-    q: string,
-    types: SearchEntityType[],
-    limit: number,
-  ): Promise<RawRankResult[]> {
-    const unions: Prisma.Sql[] = [];
-    const tsQuery = Prisma.sql`plainto_tsquery('simple', ${q})`;
+  private resolveTypes(
+    user: AuthenticatedUser,
+    requested?: SearchEntityType[],
+  ): SearchEntityType[] {
+    const allowed =
+      user.role === Role.ADMIN
+        ? [
+            SearchEntityType.SONG,
+            SearchEntityType.WRITER,
+            SearchEntityType.USER,
+            SearchEntityType.PUBLISHER,
+            SearchEntityType.RECORD_LABEL,
+          ]
+        : [SearchEntityType.SONG, SearchEntityType.WRITER];
 
-    if (types.includes(SearchEntityType.COMPOSITION)) {
-      unions.push(Prisma.sql`
-				SELECT 'composition'::text AS "entityType", "id"::text AS "entityId",
-							 ts_rank(
-								 to_tsvector('simple',
-									 coalesce("songTitle", '') || ' ' ||
-									 coalesce("alternativeTitle", '') || ' ' ||
-									 coalesce("iswc", '') || ' ' ||
-									 coalesce("isrc", '') || ' ' ||
-									 coalesce("spotifyUrl", '')
-								 ),
-								 ${tsQuery}
-							 ) AS rank
-				FROM "compositions"
-				WHERE "deletedAt" IS NULL
-					AND to_tsvector('simple',
-						coalesce("songTitle", '') || ' ' ||
-						coalesce("alternativeTitle", '') || ' ' ||
-						coalesce("iswc", '') || ' ' ||
-						coalesce("isrc", '') || ' ' ||
-						coalesce("spotifyUrl", '')
-					) @@ ${tsQuery}
-			`);
+    if (!requested || requested.length === 0) {
+      return allowed;
     }
 
-    if (types.includes(SearchEntityType.WRITER)) {
-      unions.push(Prisma.sql`
-				SELECT 'writer'::text AS "entityType", "id"::text AS "entityId",
-							 ts_rank(
-								 to_tsvector('simple',
-									 coalesce("legalName", '') || ' ' ||
-									 coalesce("stageName", '') || ' ' ||
-									 coalesce("ipiNumber", '') || ' ' ||
-									 coalesce("pro", '')
-								 ),
-								 ${tsQuery}
-							 ) AS rank
-				FROM "writers"
-				WHERE "deletedAt" IS NULL
-					AND to_tsvector('simple',
-						coalesce("legalName", '') || ' ' ||
-						coalesce("stageName", '') || ' ' ||
-						coalesce("ipiNumber", '') || ' ' ||
-						coalesce("pro", '')
-					) @@ ${tsQuery}
-			`);
-    }
-
-    if (types.includes(SearchEntityType.PUBLISHER)) {
-      unions.push(Prisma.sql`
-				SELECT 'publisher'::text AS "entityType", "id"::text AS "entityId",
-							 ts_rank(
-								 to_tsvector('simple',
-									 coalesce("publisherName", '') || ' ' ||
-									 coalesce("ipi", '') || ' ' ||
-									 coalesce("territory", '')
-								 ),
-								 ${tsQuery}
-							 ) AS rank
-				FROM "publishers"
-				WHERE "deletedAt" IS NULL
-					AND to_tsvector('simple',
-						coalesce("publisherName", '') || ' ' ||
-						coalesce("ipi", '') || ' ' ||
-						coalesce("territory", '')
-					) @@ ${tsQuery}
-			`);
-    }
-
-    if (types.includes(SearchEntityType.RECORDING)) {
-      unions.push(Prisma.sql`
-				SELECT 'recording'::text AS "entityType", "id"::text AS "entityId",
-							 ts_rank(
-								 to_tsvector('simple',
-									 coalesce("artist", '') || ' ' ||
-									 coalesce("isrc", '') || ' ' ||
-									 coalesce("spotifyLink", '')
-								 ),
-								 ${tsQuery}
-							 ) AS rank
-				FROM "recordings"
-				WHERE "deletedAt" IS NULL
-					AND to_tsvector('simple',
-						coalesce("artist", '') || ' ' ||
-						coalesce("isrc", '') || ' ' ||
-						coalesce("spotifyLink", '')
-					) @@ ${tsQuery}
-			`);
-    }
-
-    if (unions.length === 0) {
-      return [];
-    }
-
-    const unionSql = Prisma.join(unions, " UNION ALL ");
-    const querySql = Prisma.sql`
-			SELECT *
-			FROM (${unionSql}) AS ranked
-			ORDER BY rank DESC
-			LIMIT ${limit}
-		`;
-
-    const rows =
-      await this.prisma.$queryRaw<Array<{ entityType: string; entityId: string; rank: number }>>(
-        querySql,
-      );
-
-    return rows.map((row) => ({
-      entityType: row.entityType as SearchEntityType,
-      entityId: row.entityId,
-      rank: Number(row.rank),
-    }));
+    return requested.filter((type) => allowed.includes(type));
   }
 
-  private async searchCompositions(
+  private async searchSongs(
     user: AuthenticatedUser,
-    query: SearchQueryDto,
-    rankedIds: string[],
-    limit: number,
-  ) {
-    const where: Prisma.CompositionWhereInput = {};
-    if (user.role !== Role.ADMIN) {
-      where.ownerId = user.userId;
-    }
-    if (query.song) {
-      where.songTitle = { contains: query.song, mode: "insensitive" };
-    }
-    if (query.isrc) {
-      where.isrc = { contains: query.isrc, mode: "insensitive" };
-    }
-    if (query.iswc) {
-      where.iswc = { contains: query.iswc, mode: "insensitive" };
-    }
-    if (query.spotifyUrl) {
-      where.spotifyUrl = { contains: query.spotifyUrl, mode: "insensitive" };
-    }
-    if (query.q && rankedIds.length > 0) {
-      where.id = { in: rankedIds };
-    }
-    return this.prisma.composition.findMany({
+    q: string,
+    take: number,
+  ): Promise<SearchItem[]> {
+    const where: Prisma.CompositionWhereInput = {
+      deletedAt: null,
+      ...(user.role === Role.ADMIN ? {} : { ownerId: user.userId }),
+      OR: [
+        { songTitle: { contains: q, mode: "insensitive" } },
+        { alternativeTitle: { contains: q, mode: "insensitive" } },
+        { artistName: { contains: q, mode: "insensitive" } },
+        { isrc: { contains: q, mode: "insensitive" } },
+        { dlrpId: { contains: q, mode: "insensitive" } },
+      ],
+    };
+
+    const rows = await this.prisma.composition.findMany({
       where,
       select: {
         id: true,
         songTitle: true,
         alternativeTitle: true,
+        artistName: true,
         isrc: true,
-        iswc: true,
-        spotifyUrl: true,
-        owner: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            legalName: true,
-            stageName: true,
-          },
-        },
+        dlrpId: true,
         createdAt: true,
         updatedAt: true,
       },
-      take: limit,
+      take,
       orderBy: [{ updatedAt: "desc" }],
     });
+
+    return rows.map((row) => ({
+      entityType: SearchEntityType.SONG,
+      id: row.id,
+      title: row.songTitle,
+      subtitle: row.artistName ?? row.alternativeTitle,
+      score: this.relevanceScore(row.songTitle, q),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      payload: {
+        alternativeTitle: row.alternativeTitle,
+        artistName: row.artistName,
+        isrc: row.isrc,
+        dlrpId: row.dlrpId,
+      },
+    }));
   }
 
-  private async searchWriters(query: SearchQueryDto, rankedIds: string[], limit: number) {
-    const where: Prisma.WriterWhereInput = {};
-    if (query.writer) {
-      where.OR = [
-        { legalName: { contains: query.writer, mode: "insensitive" } },
-        { stageName: { contains: query.writer, mode: "insensitive" } },
+  private async searchWriters(
+    user: AuthenticatedUser,
+    q: string,
+    take: number,
+  ): Promise<SearchItem[]> {
+    const where: Prisma.WriterWhereInput = {
+      deletedAt: null,
+      OR: [
+        { legalName: { contains: q, mode: "insensitive" } },
+        { stageName: { contains: q, mode: "insensitive" } },
+        { firstName: { contains: q, mode: "insensitive" } },
+        { lastName: { contains: q, mode: "insensitive" } },
+        { ipiNumber: { contains: q, mode: "insensitive" } },
+      ],
+    };
+
+    if (user.role !== Role.ADMIN) {
+      where.AND = [
+        {
+          OR: [
+            { userId: user.userId },
+            {
+              compositions: {
+                some: {
+                  composition: {
+                    ownerId: user.userId,
+                  },
+                },
+              },
+            },
+          ],
+        },
       ];
     }
-    if (query.ipi) {
-      where.ipiNumber = { contains: query.ipi, mode: "insensitive" };
-    }
-    if (query.q && rankedIds.length > 0) {
-      where.id = { in: rankedIds };
-    }
-    return this.prisma.writer.findMany({
+
+    const rows = await this.prisma.writer.findMany({
       where,
       select: {
         id: true,
         legalName: true,
         stageName: true,
+        firstName: true,
+        lastName: true,
         ipiNumber: true,
         pro: true,
         createdAt: true,
         updatedAt: true,
       },
-      take: limit,
+      take,
       orderBy: [{ updatedAt: "desc" }],
     });
-  }
 
-  private async searchPublishers(query: SearchQueryDto, rankedIds: string[], limit: number) {
-    const where: Prisma.PublisherWhereInput = {};
-    if (query.publisher) {
-      where.publisherName = { contains: query.publisher, mode: "insensitive" };
-    }
-    if (query.ipi) {
-      where.ipi = { contains: query.ipi, mode: "insensitive" };
-    }
-    if (query.q && rankedIds.length > 0) {
-      where.id = { in: rankedIds };
-    }
-    return this.prisma.publisher.findMany({
-      where,
-      select: {
-        id: true,
-        publisherName: true,
-        ipi: true,
-        territory: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      take: limit,
-      orderBy: [{ updatedAt: "desc" }],
-    });
-  }
-
-  private async searchRecordings(query: SearchQueryDto, rankedIds: string[], limit: number) {
-    const where: Prisma.RecordingWhereInput = {};
-    if (query.artist) {
-      where.artist = { contains: query.artist, mode: "insensitive" };
-    }
-    if (query.isrc) {
-      where.isrc = { contains: query.isrc, mode: "insensitive" };
-    }
-    if (query.spotifyUrl) {
-      where.spotifyLink = { contains: query.spotifyUrl, mode: "insensitive" };
-    }
-    if (query.q && rankedIds.length > 0) {
-      where.id = { in: rankedIds };
-    }
-    return this.prisma.recording.findMany({
-      where,
-      select: {
-        id: true,
-        artist: true,
-        isrc: true,
-        spotifyLink: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      take: limit,
-      orderBy: [{ updatedAt: "desc" }],
-    });
-  }
-
-  private mapComposition(
-    item: {
-      id: string;
-      songTitle: string;
-      alternativeTitle: string | null;
-      isrc: string | null;
-      iswc: string | null;
-      spotifyUrl: string | null;
-      owner: {
-        id: string;
-        email: string;
-        firstName: string;
-        lastName: string;
-        legalName: string | null;
-        stageName: string | null;
-      };
-      createdAt: Date;
-      updatedAt: Date;
-    },
-    rankMap: Map<string, number>,
-  ): SearchItem {
-    return {
-      entityType: SearchEntityType.COMPOSITION,
-      id: item.id,
-      title: item.songTitle,
-      subtitle: item.alternativeTitle,
-      tags: [item.isrc, item.iswc].filter((v): v is string => !!v),
-      score: rankMap.get(this.rankKey(SearchEntityType.COMPOSITION, item.id)) ?? 0,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      payload: {
-        isrc: item.isrc,
-        iswc: item.iswc,
-        spotifyUrl: item.spotifyUrl,
-        owner: item.owner,
-      },
-    };
-  }
-
-  private mapWriter(
-    item: {
-      id: string;
-      legalName: string;
-      stageName: string | null;
-      ipiNumber: string | null;
-      pro: string | null;
-      createdAt: Date;
-      updatedAt: Date;
-    },
-    rankMap: Map<string, number>,
-  ): SearchItem {
-    return {
+    return rows.map((row) => ({
       entityType: SearchEntityType.WRITER,
-      id: item.id,
-      title: item.stageName ?? item.legalName,
-      subtitle: item.stageName ? item.legalName : null,
-      tags: [item.ipiNumber, item.pro].filter((v): v is string => !!v),
-      score: rankMap.get(this.rankKey(SearchEntityType.WRITER, item.id)) ?? 0,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
+      id: row.id,
+      title: row.stageName ?? row.legalName,
+      subtitle: `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() || null,
+      score: this.relevanceScore(row.stageName ?? row.legalName, q),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       payload: {
-        legalName: item.legalName,
-        stageName: item.stageName,
-        ipi: item.ipiNumber,
+        legalName: row.legalName,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        ipiNumber: row.ipiNumber,
+        pro: row.pro,
       },
-    };
+    }));
   }
 
-  private mapPublisher(
-    item: {
-      id: string;
-      publisherName: string;
-      ipi: string | null;
-      territory: string | null;
-      createdAt: Date;
-      updatedAt: Date;
-    },
-    rankMap: Map<string, number>,
-  ): SearchItem {
-    return {
+  private async searchUsers(q: string, take: number): Promise<SearchItem[]> {
+    const rows = await this.prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { firstName: { contains: q, mode: "insensitive" } },
+          { lastName: { contains: q, mode: "insensitive" } },
+          { legalName: { contains: q, mode: "insensitive" } },
+          { stageName: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        legalName: true,
+        stageName: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      take,
+      orderBy: [{ updatedAt: "desc" }],
+    });
+
+    return rows.map((row) => ({
+      entityType: SearchEntityType.USER,
+      id: row.id,
+      title: `${row.firstName} ${row.lastName}`.trim(),
+      subtitle: row.email,
+      score: this.relevanceScore(`${row.firstName} ${row.lastName} ${row.email}`, q),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      payload: {
+        role: row.role,
+        legalName: row.legalName,
+        stageName: row.stageName,
+      },
+    }));
+  }
+
+  private async searchPublishers(q: string, take: number): Promise<SearchItem[]> {
+    const rows = await this.prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        role: Role.PUBLISHER,
+        OR: [
+          { firstName: { contains: q, mode: "insensitive" } },
+          { lastName: { contains: q, mode: "insensitive" } },
+          { legalName: { contains: q, mode: "insensitive" } },
+          { stageName: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        legalName: true,
+        stageName: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      take,
+      orderBy: [{ updatedAt: "desc" }],
+    });
+
+    return rows.map((row) => ({
       entityType: SearchEntityType.PUBLISHER,
-      id: item.id,
-      title: item.publisherName,
-      subtitle: item.territory,
-      tags: [item.ipi].filter((v): v is string => !!v),
-      score: rankMap.get(this.rankKey(SearchEntityType.PUBLISHER, item.id)) ?? 0,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
+      id: row.id,
+      title: row.legalName ?? `${row.firstName} ${row.lastName}`.trim(),
+      subtitle: row.email,
+      score: this.relevanceScore(`${row.firstName} ${row.lastName} ${row.email}`, q),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       payload: {
-        ipi: item.ipi,
-        territory: item.territory,
+        legalName: row.legalName,
+        stageName: row.stageName,
       },
-    };
+    }));
   }
 
-  private mapRecording(
-    item: {
-      id: string;
-      artist: string | null;
-      isrc: string | null;
-      spotifyLink: string | null;
-      createdAt: Date;
-      updatedAt: Date;
-    },
-    rankMap: Map<string, number>,
-  ): SearchItem {
-    return {
-      entityType: SearchEntityType.RECORDING,
-      id: item.id,
-      title: item.artist ?? "Unknown Artist",
-      subtitle: item.isrc,
-      tags: [item.isrc].filter((v): v is string => !!v),
-      score: rankMap.get(this.rankKey(SearchEntityType.RECORDING, item.id)) ?? 0,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      payload: {
-        artist: item.artist,
-        isrc: item.isrc,
-        spotifyUrl: item.spotifyLink,
-      },
-    };
+  private async searchRecordLabels(q: string, take: number): Promise<SearchItem[]> {
+    const [users, companies] = await Promise.all([
+      this.prisma.user.findMany({
+        where: {
+          deletedAt: null,
+          role: Role.RECORD_LABEL,
+          OR: [
+            { firstName: { contains: q, mode: "insensitive" } },
+            { lastName: { contains: q, mode: "insensitive" } },
+            { legalName: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+          ],
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          legalName: true,
+          email: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        take,
+        orderBy: [{ updatedAt: "desc" }],
+      }),
+      this.prisma.company.findMany({
+        where: {
+          deletedAt: null,
+          type: CompanyType.RECORD_LABEL,
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { legalName: { contains: q, mode: "insensitive" } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          legalName: true,
+          email: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        take,
+        orderBy: [{ updatedAt: "desc" }],
+      }),
+    ]);
+
+    return [
+      ...users.map((row) => ({
+        entityType: SearchEntityType.RECORD_LABEL,
+        id: row.id,
+        title: row.legalName ?? `${row.firstName} ${row.lastName}`.trim(),
+        subtitle: row.email,
+        score: this.relevanceScore(
+          `${row.legalName ?? ""} ${row.firstName} ${row.lastName} ${row.email}`,
+          q,
+        ),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        payload: {
+          source: "user",
+        },
+      })),
+      ...companies.map((row) => ({
+        entityType: SearchEntityType.RECORD_LABEL,
+        id: row.id,
+        title: row.legalName ?? row.name,
+        subtitle: row.email,
+        score: this.relevanceScore(`${row.legalName ?? ""} ${row.name} ${row.email ?? ""}`, q),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        payload: {
+          source: "company",
+          companyName: row.name,
+        },
+      })),
+    ];
   }
 
   private sortRows(
     rows: SearchItem[],
     sortBy: SearchSortBy,
     sortDirection: SearchSortDirection,
-    hasQuery: boolean,
   ): SearchItem[] {
     const direction = sortDirection === SearchSortDirection.ASC ? 1 : -1;
-    const effectiveSortBy =
-      sortBy === SearchSortBy.RELEVANCE && !hasQuery ? SearchSortBy.UPDATED_AT : sortBy;
 
     return [...rows].sort((a, b) => {
-      if (effectiveSortBy === SearchSortBy.RELEVANCE) {
+      if (sortBy === SearchSortBy.RELEVANCE) {
         return (a.score - b.score) * direction;
       }
 
-      if (effectiveSortBy === SearchSortBy.CREATED_AT) {
+      if (sortBy === SearchSortBy.CREATED_AT) {
         return (a.createdAt.getTime() - b.createdAt.getTime()) * direction;
       }
 
-      if (effectiveSortBy === SearchSortBy.UPDATED_AT) {
+      if (sortBy === SearchSortBy.UPDATED_AT) {
         return (a.updatedAt.getTime() - b.updatedAt.getTime()) * direction;
       }
 
@@ -491,37 +397,22 @@ export class SearchService {
     });
   }
 
-  private resolveTypes(types?: SearchEntityType[]): SearchEntityType[] {
-    if (!types || types.length === 0) {
-      return [
-        SearchEntityType.COMPOSITION,
-        SearchEntityType.WRITER,
-        SearchEntityType.PUBLISHER,
-        SearchEntityType.RECORDING,
-      ];
+  private relevanceScore(value: string, q: string): number {
+    const text = value.toLowerCase();
+    const needle = q.toLowerCase();
+
+    if (text === needle) {
+      return 100;
     }
 
-    return [...new Set(types)];
-  }
+    if (text.startsWith(needle)) {
+      return 75;
+    }
 
-  private groupIdsByType(ranks: RawRankResult[]) {
-    return {
-      composition: ranks
-        .filter((row) => row.entityType === SearchEntityType.COMPOSITION)
-        .map((row) => row.entityId),
-      writer: ranks
-        .filter((row) => row.entityType === SearchEntityType.WRITER)
-        .map((row) => row.entityId),
-      publisher: ranks
-        .filter((row) => row.entityType === SearchEntityType.PUBLISHER)
-        .map((row) => row.entityId),
-      recording: ranks
-        .filter((row) => row.entityType === SearchEntityType.RECORDING)
-        .map((row) => row.entityId),
-    };
-  }
+    if (text.includes(needle)) {
+      return 50;
+    }
 
-  private rankKey(type: SearchEntityType, id: string): string {
-    return `${type}:${id}`;
+    return 0;
   }
 }

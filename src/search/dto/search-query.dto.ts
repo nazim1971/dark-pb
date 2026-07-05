@@ -1,21 +1,12 @@
 import { Type } from "class-transformer";
-import {
-  IsEnum,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUrl,
-  Max,
-  MaxLength,
-  Min,
-} from "class-validator";
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 
 export enum SearchEntityType {
-  COMPOSITION = "composition",
+  SONG = "song",
   WRITER = "writer",
+  USER = "user",
   PUBLISHER = "publisher",
-  RECORDING = "recording",
+  RECORD_LABEL = "recordLabel",
 }
 
 export enum SearchSortBy {
@@ -31,53 +22,13 @@ export enum SearchSortDirection {
 }
 
 export class SearchQueryDto {
-  @IsOptional()
   @IsString()
   @MaxLength(200)
-  q?: string;
+  q!: string;
 
   @IsOptional()
-  @IsIn(["composition", "writer", "publisher", "recording"], { each: true })
+  @IsIn(["song", "writer", "user", "publisher", "recordLabel"], { each: true })
   types?: SearchEntityType[];
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  song?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  writer?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  publisher?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  artist?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  isrc?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  iswc?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  ipi?: string;
-
-  @IsOptional()
-  @IsUrl({ require_tld: false })
-  spotifyUrl?: string;
 
   @IsOptional()
   @IsEnum(SearchSortBy)

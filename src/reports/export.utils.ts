@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
 
-export type ExportFormat = "csv" | "excel" | "pdf";
+export type ExportFormat = "csv" | "excel" | "pdf" | "cwr";
 
 export interface ExportArtifact {
   buffer: Buffer;
@@ -127,6 +127,23 @@ export async function buildExportArtifact(
       buffer: await buildExcelBuffer(title, rows),
       mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       fileName: `${baseFileName}.xlsx`,
+    };
+  }
+
+  if (format === "cwr") {
+    const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const lines = [
+      `HDR|${title.toUpperCase().replace(/\s+/g, "_")}`,
+      ...rows.map((row) =>
+        ["ROW", ...headers.map((header) => String(row[header] ?? ""))].join("|"),
+      ),
+      `TRL|${rows.length}`,
+    ];
+
+    return {
+      buffer: Buffer.from(`${lines.join("\n")}\n`, "utf8"),
+      mimeType: "text/plain; charset=utf-8",
+      fileName: `${baseFileName}.cwr`,
     };
   }
 

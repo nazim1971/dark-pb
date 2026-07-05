@@ -1,0 +1,5 @@
+export enum SongStatus {
+  SUBMITTED = "SUBMITTED",
+  PROCESSING = "PROCESSING",
+  REGISTERED = "REGISTERED",
+}

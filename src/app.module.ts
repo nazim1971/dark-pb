@@ -8,20 +8,20 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { validateEnv } from "./common/config/config.validation";
 import { AppController } from "./app.controller";
 import { KycModule } from "./kyc/kyc.module";
-import { CompositionsModule } from "./compositions/compositions.module";
 import { WritersModule } from "./writers/writers.module";
-import { RecordingsModule } from "./recordings/recordings.module";
-import { PublishersModule } from "./publishers/publishers.module";
 import { RoyaltiesModule } from "./royalties/royalties.module";
 import { StatementsModule } from "./statements/statements.module";
-import { ConflictsModule } from "./conflicts/conflicts.module";
-import { ContractsModule } from "./contracts/contracts.module";
 import { SupportModule } from "./support/support.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { AdminModule } from "./admin/admin.module";
 import { ReportsModule } from "./reports/reports.module";
 import { SearchModule } from "./search/search.module";
+import { SongsModule } from "./songs/songs.module";
 import { LoggerMiddleware } from "./common/middleware/logger.middleware";
+import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
+import { SecurityMiddleware } from "./common/middleware/security.middleware";
+import { CommonModule } from "./common/common.module";
+import { SharedModule } from "./shared/shared.module";
 
 @Module({
   controllers: [AppController],
@@ -32,27 +32,36 @@ import { LoggerMiddleware } from "./common/middleware/logger.middleware";
     }),
     ThrottlerModule.forRoot([
       {
+        name: "default",
         ttl: 60_000,
         limit: 100,
       },
+      {
+        name: "search",
+        ttl: 60_000,
+        limit: 30,
+      },
+      {
+        name: "export",
+        ttl: 60_000,
+        limit: 10,
+      },
     ]),
+    CommonModule,
+    SharedModule,
     PrismaModule,
     AuthModule,
     UsersModule,
     KycModule,
-    CompositionsModule,
     WritersModule,
-    RecordingsModule,
-    PublishersModule,
     RoyaltiesModule,
     StatementsModule,
-    ConflictsModule,
-    ContractsModule,
     SupportModule,
     NotificationsModule,
     AdminModule,
     ReportsModule,
     SearchModule,
+    SongsModule,
   ],
   providers: [
     {
@@ -63,6 +72,6 @@ import { LoggerMiddleware } from "./common/middleware/logger.middleware";
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(LoggerMiddleware).forRoutes("*");
+    consumer.apply(RequestIdMiddleware, SecurityMiddleware, LoggerMiddleware).forRoutes("*");
   }
 }

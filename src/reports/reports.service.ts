@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, SongStatus } from "@prisma/client";
+import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
 import { PrismaService } from "../prisma/prisma.service";
 import { StatementsService } from "../statements/statements.service";
 import { StatementQueryDto } from "../statements/dto/statement-query.dto";
@@ -21,10 +22,10 @@ export class ReportsService {
     private readonly statementsService: StatementsService,
   ) {}
 
-  async getRoyaltiesReport(query: RoyaltyQueryDto) {
+  async getRoyaltiesReport(user: AuthenticatedUser, query: RoyaltyQueryDto) {
     const [records, analytics] = await Promise.all([
-      this.royaltiesService.list(query),
-      this.royaltiesService.analytics(query),
+      this.royaltiesService.list(user, query),
+      this.royaltiesService.analytics(user, query),
     ]);
 
     return {
@@ -35,14 +36,15 @@ export class ReportsService {
   }
 
   async exportRoyaltiesReport(
+    user: AuthenticatedUser,
     query: RoyaltyQueryDto,
     format: ExportFormat,
   ): Promise<ExportArtifact> {
-    return this.royaltiesService.export(query, format);
+    return this.royaltiesService.export(user, query, format);
   }
 
-  async getStatementsReport(query: StatementQueryDto) {
-    const statements = await this.statementsService.list(query);
+  async getStatementsReport(user: AuthenticatedUser, query: StatementQueryDto) {
+    const statements = await this.statementsService.list(user, query);
 
     return {
       filters: query,
@@ -51,37 +53,28 @@ export class ReportsService {
   }
 
   async exportStatementsReport(
+    user: AuthenticatedUser,
     query: StatementQueryDto,
     format: ExportFormat,
   ): Promise<ExportArtifact> {
-    return this.statementsService.export(query, format);
+    return this.statementsService.export(user, query, format);
   }
 
   async getAdminReport(filters: AdminReportFilters) {
     const createdAt = this.buildCreatedAtFilter(filters);
 
-    const [
-      pendingKyc,
-      submittedWorks,
-      unresolvedConflicts,
-      openTickets,
-      recentActivity,
-      generatedReports,
-    ] = await Promise.all([
+    const [pendingKyc, submittedSongs, recentActivity, generatedReports] = await Promise.all([
       this.prisma.kYC.count({ where: { status: "PENDING" } }),
       this.prisma.composition.count({
-        where: { status: { in: ["SUBMITTED", "UNDER_REVIEW"] }, createdAt },
-      }),
-      this.prisma.conflict.count({
-        where: { status: { in: ["OPEN", "UNDER_REVIEW"] }, createdAt },
-      }),
-      this.prisma.ticket.count({
-        where: { status: { in: ["OPEN", "IN_PROGRESS", "WAITING_FOR_USER"] }, createdAt },
+        where: {
+          songStatus: { in: [SongStatus.SUBMITTED, SongStatus.PROCESSING] },
+          ...(createdAt ? { createdAt } : {}),
+        },
       }),
       this.prisma.auditLog.findMany({
-        where: { createdAt },
-        orderBy: [{ createdAt: "desc" }],
-        take: 20,
+          where: { createdAt },
+          orderBy: [{ createdAt: "desc" }],
+          take: 20,
       }),
       this.prisma.auditLog.count({
         where: {
@@ -94,9 +87,7 @@ export class ReportsService {
     return {
       summary: {
         pendingKyc,
-        submittedWorks,
-        unresolvedConflicts,
-        openTickets,
+        submittedSongs,
         generatedReports,
       },
       activity: recentActivity,
@@ -141,11 +132,6 @@ export class ReportsService {
             writer: true,
           },
         },
-        publishers: {
-          include: {
-            publisher: true,
-          },
-        },
       },
       orderBy: [{ createdAt: "desc" }],
       take: 1000,
@@ -160,11 +146,13 @@ export class ReportsService {
         ipi: relation.writer.ipiNumber,
         share: Number(relation.writerShare),
       })),
-      publishers: work.publishers.map((relation) => ({
-        name: relation.publisher.publisherName,
-        ipi: relation.publisher.ipi,
-        share: relation.sharePercentage ? Number(relation.sharePercentage) : null,
-      })),
+      publishers: work.writers
+        .filter((relation) => relation.controlledPublisher)
+        .map((relation) => ({
+          name: relation.controlledPublisher ?? "",
+          ipi: null,
+          share: relation.publisherShare ? Number(relation.publisherShare) : null,
+        })),
     }));
 
     return buildCwrArtifact(cwrRows, "admin-cwr-report");

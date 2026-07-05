@@ -1,11 +1,13 @@
-import { Controller, Get, Query, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, UsePipes } from "@nestjs/common";
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { Roles } from "../auth/decorators/roles.decorator";
+import { SkipKycCheck } from "../auth/decorators/skip-kyc-check.decorator";
 import { AuthenticatedUser } from "../auth/interfaces/token-payload.interface";
 import { ZodValidationPipe } from "../common/validation/zod-validation.pipe";
 import { KycPendingQueryDto } from "./dto/kyc-pending-query.dto";
-import { kycPendingQuerySchema } from "./schemas/kyc.zod";
+import { SubmitKycDto } from "./dto/submit-kyc.dto";
+import { kycPendingQuerySchema, submitKycSchema } from "./schemas/kyc.zod";
 import { KycService } from "./kyc.service";
 
 @ApiTags("KYC")
@@ -13,6 +15,15 @@ import { KycService } from "./kyc.service";
 @Controller("kyc")
 export class KycController {
   constructor(private readonly kycService: KycService) {}
+
+  @Post("submit")
+  @SkipKycCheck()
+  @ApiOperation({ summary: "Submit or resubmit current user KYC" })
+  @ApiOkResponse({ description: "KYC submitted" })
+  @UsePipes(new ZodValidationPipe(submitKycSchema))
+  async submitKyc(@CurrentUser() user: AuthenticatedUser, @Body() dto: SubmitKycDto) {
+    return this.kycService.submitKyc(user.userId, dto);
+  }
 
   @Get("me")
   @ApiOperation({ summary: "Get authenticated user KYC status" })

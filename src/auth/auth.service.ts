@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -14,6 +15,7 @@ import {
   RegistrationType as PrismaRegistrationType,
   Role,
   User,
+  UserStatus,
 } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 import ms from "ms";
@@ -66,20 +68,30 @@ export class AuthService {
         const registrationType = dto.registrationType as PrismaRegistrationType;
 
         if (dto.registrationType === RegistrationType.COMPANY) {
-          if (!dto.companyName) {
-            throw new BadRequestException("companyName is required for company registration");
+          const companyName = dto.companyLegalName?.trim() ?? dto.companyName?.trim();
+          const representativeName = dto.representativeName?.trim() ?? dto.director?.trim();
+          const registrationNumber = dto.registrationNumber?.trim() ?? dto.companyNumber?.trim();
+
+          if (!companyName) {
+            throw new BadRequestException(
+              "companyName or companyLegalName is required for company registration",
+            );
           }
 
           const company = await tx.company.create({
             data: {
-              name: dto.companyName,
-              legalName: dto.companyName,
-              companyNumber: dto.companyNumber,
+              name: companyName,
+              legalName: companyName,
+              companyNumber: registrationNumber,
               address: dto.address,
-              director: dto.director,
+              director: representativeName,
               email: dto.companyEmail ?? normalizedEmail,
               phone: dto.companyPhone ?? dto.phone,
-              registrationNumber: dto.companyNumber,
+              registrationNumber,
+              vatNumber: dto.vatNumber,
+              website: dto.website,
+              taxId: dto.vatNumber,
+              country: dto.country,
               type: dto.companyType ?? this.inferCompanyType(dto.role),
             },
           });
@@ -93,12 +105,13 @@ export class AuthService {
           data: {
             email: normalizedEmail,
             passwordHash,
-            legalName: dto.legalName?.trim(),
+            legalName: this.resolveLegalName(dto),
             stageName: dto.stageName?.trim(),
             firstName,
             lastName,
             country: dto.country?.trim(),
             phone: dto.phone?.trim(),
+            dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
             spotifyArtistLink: dto.spotifyArtistLink?.trim(),
             pro: dto.pro?.trim(),
             ipiNumber: dto.ipiNumber?.trim(),
@@ -325,13 +338,26 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new ForbiddenException("Account suspended. Please contact support.");
+    }
+
     return user;
   }
 
   private resolveUserNames(dto: RegisterDto): { firstName: string; lastName: string } {
+    if (dto.legalFirstName?.trim() && dto.legalLastName?.trim()) {
+      return {
+        firstName: dto.legalFirstName.trim(),
+        lastName: dto.legalLastName.trim(),
+      };
+    }
+
     const source =
       dto.legalName?.trim() ||
+      dto.representativeName?.trim() ||
       dto.director?.trim() ||
+      dto.companyLegalName?.trim() ||
       dto.companyName?.trim() ||
       dto.email.split("@")[0];
 
@@ -349,6 +375,18 @@ export class AuthService {
       firstName: parts[0],
       lastName: parts.slice(1).join(" "),
     };
+  }
+
+  private resolveLegalName(dto: RegisterDto): string | undefined {
+    if (dto.legalName?.trim()) {
+      return dto.legalName.trim();
+    }
+
+    if (dto.legalFirstName?.trim() && dto.legalLastName?.trim()) {
+      return `${dto.legalFirstName.trim()} ${dto.legalLastName.trim()}`;
+    }
+
+    return undefined;
   }
 
   private async issueFreshSession(
